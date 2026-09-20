@@ -1206,3 +1206,48 @@ into the client: each is a call, and the frontend still only renders the strings
 - ADR-0024's eight tests for an operand carried into a unary operation are gone. The defect they
   guarded cannot be expressed any more: there is no interval during which a unary operation
   holds an operand.
+
+---
+
+## ADR-0027 — Correction: which signals stop the container, and what its exit status means
+
+**Status:** Accepted · 2026-09-20
+
+**Amends:** ADR-0026 (clause 3 only; the rest of ADR-0026 stands unchanged)
+
+**Context.** ADR-0026 clause 3 said the entrypoint "starts both processes, forwards `SIGTERM`
+to them, and exits as soon as either one does". Running the built image showed two ways that
+was wrong:
+
+- `docker stop` took the full ten seconds and the container died of `SIGKILL`, exit 137. The
+  `nginx` base image sets `STOPSIGNAL SIGQUIT`, which the image inherited. PID 1 receives no
+  default handler for a signal, so an untrapped `SIGQUIT` is dropped and nothing happens until
+  the kill timeout. Trapping `TERM` and `INT` covered `docker kill -s TERM` and `Ctrl-C` —
+  every way of stopping the container except the usual one.
+- Killing the API process stopped the container with exit status 0. A crash and a clean
+  shutdown were indistinguishable to anything reading the exit code.
+
+**Decision.**
+
+1. The entrypoint traps `QUIT` alongside `TERM` and `INT`, and the image sets
+   `STOPSIGNAL SIGTERM` so the ordinary stop path arrives at the trap.
+2. `terminate` sends each process the signal it shuts down gracefully on: `SIGTERM` to the API,
+   which its own handler turns into a `Shutdown` with a grace period, and `SIGQUIT` to nginx,
+   whose `SIGTERM` is a fast exit that drops in-flight requests.
+3. The entrypoint exits with the status of whichever process died, the API's first. Both report
+   0 when they were signalled, so a graceful stop is still exit 0 and only a crash is not.
+
+**Alternatives considered.**
+- *Leaving `STOPSIGNAL SIGQUIT` and trapping only that.* Works for `docker stop` and keeps the
+  base image's convention, but the trap would then have to translate a signal the API does not
+  handle, and `docker kill -s TERM` would still be the unhandled case.
+- *Sending `SIGTERM` to nginx too, as ADR-0026 described.* One signal for both, at the cost of
+  nginx dropping connections it was in the middle of answering.
+
+**Consequences.**
+- `docker stop` now returns in about two seconds with exit 0, and both processes log their
+  graceful shutdown.
+- A killed API takes the container down within the poll interval with its own status (137 for
+  `SIGKILL`), so `--restart on-failure` sees a failure.
+- The nginx image's `STOPSIGNAL` convention is overridden, which is worth knowing when reading
+  the base image's own documentation.

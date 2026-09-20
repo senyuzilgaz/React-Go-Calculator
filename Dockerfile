@@ -19,6 +19,10 @@ COPY --chmod=0755 deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 80
 
+# The nginx base image sets SIGQUIT, which the entrypoint would have to translate for the API.
+# Stopping on the signal the shell traps keeps both shutdowns on one path.
+STOPSIGNAL SIGTERM
+
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
     CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1
 

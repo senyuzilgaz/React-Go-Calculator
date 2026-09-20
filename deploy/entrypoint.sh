@@ -3,10 +3,15 @@
 # behind a healthy nginx would otherwise serve the UI and fail every calculation.
 set -eu
 
+# SIGQUIT is included because the nginx base image sets STOPSIGNAL SIGQUIT; PID 1 gets no
+# default handler, so an untrapped stop signal is dropped and the container waits out the
+# kill timeout instead of shutting down. Each process gets the signal it shuts down
+# gracefully on: TERM for the API, QUIT for nginx, whose TERM is a fast exit.
 terminate() {
-    kill -TERM "$api" "$web" 2>/dev/null || true
+    kill -TERM "$api" 2>/dev/null || true
+    kill -QUIT "$web" 2>/dev/null || true
 }
-trap terminate TERM INT
+trap terminate TERM INT QUIT
 
 /usr/local/bin/server &
 api=$!
@@ -21,5 +26,15 @@ while kill -0 "$api" 2>/dev/null && kill -0 "$web" 2>/dev/null; do
 done
 
 terminate
-wait "$api" 2>/dev/null || true
-wait "$web" 2>/dev/null || true
+
+api_status=0
+web_status=0
+wait "$api" || api_status=$?
+wait "$web" || web_status=$?
+
+# A process that died on its own carries its status out of the container, so a restart policy
+# sees a failure. Both report 0 on a signalled shutdown, which is the normal path.
+if [ "$api_status" -ne 0 ]; then
+    exit "$api_status"
+fi
+exit "$web_status"
