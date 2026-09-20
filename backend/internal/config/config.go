@@ -1,6 +1,5 @@
-// Package config reads the service's settings from the environment. Load takes the lookup
-// as an argument rather than calling os.Getenv, so it can be exercised without touching
-// process state.
+// Package config reads the service's settings. Load takes the lookup as an argument rather
+// than calling os.Getenv, so a test never touches process state.
 package config
 
 import (
@@ -22,23 +21,19 @@ const (
 )
 
 type Config struct {
-	// Address binds every interface: the service runs in a container, where a loopback-only
-	// bind would be unreachable from outside (ADR-0012).
+	// Binds every interface: a loopback-only bind is unreachable from outside a container.
 	Address string
 
 	LogLevel slog.Level
 
-	// AllowedOrigin enables CORS for exactly that origin. Empty disables it, which is the
-	// development default (ADR-0012).
+	// Enables CORS for exactly that origin. Empty disables it, the development default.
 	AllowedOrigin string
 
-	// ShutdownTimeout is how long in-flight requests have to finish after a termination
-	// signal.
 	ShutdownTimeout time.Duration
 }
 
-// Load reports every problem it finds rather than only the first: a misconfigured deployment
-// should need one restart to diagnose, not four.
+// Load reports every problem it finds, so a misconfigured deployment takes one restart to
+// diagnose rather than four.
 func Load(getenv func(string) string) (Config, error) {
 	address, addressErr := parseAddress(getenv("PORT"))
 	logLevel, logLevelErr := parseLogLevel(getenv("LOG_LEVEL"))
@@ -81,10 +76,8 @@ func parseLogLevel(value string) (slog.Level, error) {
 	return level, nil
 }
 
-// parseAllowedOrigin insists on a bare origin and returns it normalized. The CORS middleware
-// compares it to the Origin header byte for byte, and browsers send a lowercased scheme and
-// host, so a trailing slash, a path, or an uppercase host would deploy and then silently
-// match nothing.
+// Normalizes rather than only validating: the middleware compares this to the Origin header
+// byte for byte, so an uppercase host or a trailing slash would deploy and match nothing.
 func parseAllowedOrigin(value string) (string, error) {
 	if value == "" {
 		return "", nil

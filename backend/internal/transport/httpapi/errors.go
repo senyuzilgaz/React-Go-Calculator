@@ -9,8 +9,8 @@ import (
 	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/calc"
 )
 
-// apiError is a failure already classified for the wire: the status line, the machine code
-// the client switches on, and the human message it never parses (ADR-0004).
+// A failure already classified for the wire: status, the code the client switches on, and
+// the message it never parses (ADR-0004).
 type apiError struct {
 	status  int
 	code    string
@@ -41,8 +41,7 @@ func unknownOperation(id string) *apiError {
 	}
 }
 
-// unknownResource answers a path outside the contract. UNKNOWN_OPERATION is the only 404 in
-// the closed enum of ADR-0004.
+// Answers a path outside the contract. UNKNOWN_OPERATION is the only 404 in the enum.
 func unknownResource() *apiError {
 	return &apiError{
 		status:  http.StatusNotFound,
@@ -67,13 +66,10 @@ func internalError() *apiError {
 	}
 }
 
-// classify maps a domain error onto its wire form — the taxonomy of ADR-0004. Message text
-// lives here because calc's error strings are internal and never surfaced. An error matching
-// no case is a fault in this package rather than a rejected request, so it becomes a 500
-// carrying no detail.
-//
-// calc.ErrUnknownOperation is absent deliberately: handleExecute resolves existence before
-// calling calc, so it cannot reach here.
+// Maps a domain error onto its wire form (ADR-0004). Message text lives here because calc's
+// strings are internal. An error matching no case is a fault in this package rather than a
+// rejected request, so it becomes a 500 with no detail. calc.ErrUnknownOperation is absent
+// deliberately: handleExecute resolves existence before calling calc.
 func classify(err error, operation calc.Operation, operandCount int) *apiError {
 	switch {
 	case errors.Is(err, calc.ErrWrongOperandCount):
@@ -84,8 +80,8 @@ func classify(err error, operation calc.Operation, operandCount int) *apiError {
 				operation.ID, operation.Arity, operandNoun(operation.Arity), operandCount),
 		}
 
-	// Unreachable while the decoder rejects non-numeric operands first; kept so a change to
-	// the decode path degrades to a 400 rather than a 500 (ADR-0017).
+	// Unreachable while the decoder rejects non-numeric operands first. Kept so a change
+	// there degrades to a 400 rather than a 500 (ADR-0017).
 	case errors.Is(err, calc.ErrInvalidOperand):
 		return &apiError{
 			status:  http.StatusBadRequest,
@@ -130,8 +126,7 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	// The status line is already committed, so a failed write means the client is gone and
-	// there is nowhere left to report it.
+	// The status line is committed, so a failed write means the client is gone.
 	_ = json.NewEncoder(w).Encode(payload)
 }
 

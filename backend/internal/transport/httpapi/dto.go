@@ -2,8 +2,8 @@ package httpapi
 
 import "encoding/json"
 
-// Operands are decoded one element at a time rather than straight into []float64, so a bad
-// element can be reported with its position (ADR-0014).
+// Operands decode one element at a time rather than into []float64, so a bad one can be
+// reported with its position (ADR-0014).
 type calculationRequest struct {
 	Operands []json.RawMessage `json:"operands"`
 }

@@ -8,8 +8,7 @@ import (
 	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/calc"
 )
 
-// maxRequestBytes caps the request body. A body beyond it is reported as INVALID_JSON, as
-// api/openapi.yaml documents.
+// A body beyond this is reported as INVALID_JSON, as api/openapi.yaml documents.
 const maxRequestBytes = 4 << 10
 
 var jsonNull = []byte("null")
@@ -18,8 +17,7 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{Status: "ok"})
 }
 
-// handleCatalog projects the registry onto the wire. Nothing here is hand-maintained, so the
-// catalog cannot drift from what the server executes (ADR-0002).
+// Projected from the registry, so the catalog cannot drift from what the server executes.
 func handleCatalog(w http.ResponseWriter, _ *http.Request) {
 	operations := calc.Catalog()
 
@@ -43,9 +41,8 @@ func handleCatalog(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, catalogResponse{Operations: payload})
 }
 
-// handleExecute applies one operation. Existence is settled before the body is read: the path
-// segment names a resource, and a request for one that does not exist is a 404 whatever its
-// body contains (ADR-0002).
+// Existence is settled before the body is read: the path segment names a resource, so a
+// request for one that does not exist is a 404 whatever its body contains (ADR-0002).
 func handleExecute(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("op")
 
@@ -74,9 +71,8 @@ func handleExecute(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// decodeOperands reports a malformed body and a malformed operand as the different failures
-// they are: the body either parses or it does not, whereas an operand that parses but is not
-// a number has a known position.
+// A malformed body and a malformed operand are different failures: the second has a
+// position to report.
 func decodeOperands(w http.ResponseWriter, r *http.Request) ([]float64, *apiError) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes))
 	decoder.DisallowUnknownFields()
@@ -91,9 +87,8 @@ func decodeOperands(w http.ResponseWriter, r *http.Request) ([]float64, *apiErro
 
 	operands := make([]float64, len(request.Operands))
 	for i, raw := range request.Operands {
-		// JSON null is rejected explicitly: it unmarshals into a float64 without error and
-		// would otherwise arrive silently as zero. Positions are 1-based in the published
-		// messages.
+		// null is rejected explicitly: it unmarshals into a float64 without error and
+		// would arrive silently as zero. Positions are 1-based on the wire.
 		if bytes.Equal(raw, jsonNull) {
 			return nil, invalidOperand(i + 1)
 		}

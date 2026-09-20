@@ -10,9 +10,8 @@ import (
 
 const requestIDHeader = "X-Request-Id"
 
-// maxRequestIDLength bounds an echoed correlation id. The value is attacker-controlled and
-// reaches every log line for the request, so an unreasonable one is replaced rather than
-// carried.
+// An echoed id is attacker-controlled and reaches every log line, so an unreasonable one is
+// replaced rather than carried.
 const maxRequestIDLength = 128
 
 type contextKey int
@@ -25,8 +24,7 @@ func RequestIDFrom(ctx context.Context) string {
 	return id
 }
 
-// requestID puts a correlation id on every response, echoed from the request when one was
-// supplied and generated otherwise (ADR-0014).
+// Echoed from the request when one was supplied, generated otherwise (ADR-0014).
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := acceptableRequestID(r.Header.Get(requestIDHeader))
@@ -51,8 +49,8 @@ func acceptableRequestID(value string) string {
 	return value
 }
 
-// logRequests records one line per request. It reports through a defer so a request that
-// panics is still logged, with the status the recovery middleware wrote.
+// Reports through a defer so a panicking request is still logged, with the status the
+// recovery middleware wrote.
 func logRequests(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,8 +72,8 @@ func logRequests(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// recoverPanics turns an unexpected fault into the documented 500, carrying no internal
-// detail; the correlation id ties the response to the log entry that has it.
+// Turns a fault into the documented 500 with no internal detail. The correlation id ties
+// the response to the log entry that has it.
 func recoverPanics(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,8 +92,8 @@ func recoverPanics(logger *slog.Logger) func(http.Handler) http.Handler {
 					"request_id", RequestIDFrom(r.Context()),
 				)
 
-				// Once the status line is out the response cannot be replaced; the
-				// truncated body is all the client will get.
+				// The status line is out, so the truncated body is all the
+				// client will get.
 				if !recorder.wroteHeader {
 					writeError(recorder, internalError())
 				}
@@ -106,8 +104,8 @@ func recoverPanics(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// corsPolicy is a no-op until an origin is configured, which is the development case: the
-// Vite dev server proxies the API, so no cross-origin request is ever made (ADR-0012).
+// A no-op until an origin is configured, which is the development case: the Vite proxy
+// means no cross-origin request is ever made (ADR-0012).
 func corsPolicy(allowedOrigin string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if allowedOrigin == "" {
@@ -125,8 +123,8 @@ func corsPolicy(allowedOrigin string) func(http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 
 			// Only a genuine preflight is answered here. Any other OPTIONS is an
-			// unsupported method on a real path, and the router owns that answer — 405 in
-			// the envelope, the same as it gives with CORS disabled (ADR-0022).
+			// unsupported method on a real path, which the router answers as a 405
+			// in the envelope, the same as with CORS disabled (ADR-0022).
 			if r.Method != http.MethodOptions || r.Header.Get("Access-Control-Request-Method") == "" {
 				next.ServeHTTP(w, r)
 				return
@@ -140,8 +138,8 @@ func corsPolicy(allowedOrigin string) func(http.Handler) http.Handler {
 	}
 }
 
-// statusRecorder remembers the status line so the logger can report it and the recovery
-// middleware can tell whether the response has already been committed.
+// Remembers the status line so the logger can report it and the recovery middleware can
+// tell whether the response is already committed.
 type statusRecorder struct {
 	http.ResponseWriter
 	status      int

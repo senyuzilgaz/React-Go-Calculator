@@ -156,7 +156,7 @@ func TestCatalogEveryOperationIsApplicable(t *testing.T) {
 }
 
 // The registry is process-wide state. A caller editing what it was handed must not be able
-// to corrupt it for the next caller — including through the Parameters slice, which a
+// to corrupt it for the next caller, including through the Parameters slice, which a
 // shallow copy of the struct would leave aliasing the registry (ADR-0022).
 func TestCatalogReturnsIndependentOperations(t *testing.T) {
 	first := Catalog()

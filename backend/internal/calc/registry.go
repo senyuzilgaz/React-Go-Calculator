@@ -1,8 +1,5 @@
-// Package calc holds the arithmetic domain: the operation registry, the operations, and the
-// rounding policy that turns a result into its display form.
-//
-// It knows nothing of HTTP or JSON. Failures are domain errors for the transport layer to
-// classify (ADR-0004, ADR-0007).
+// Package calc holds the arithmetic: the operation registry and the rounding policy. It
+// knows nothing of HTTP or JSON, and reports failures as domain errors (ADR-0007).
 package calc
 
 import (
@@ -12,14 +9,13 @@ import (
 	"strings"
 )
 
-// Parameter is one positional operand, described by the role it plays in the operation.
+// Parameter is one positional operand, named for the role it plays.
 type Parameter struct {
 	Name        string
 	Description string
 }
 
-// Operation is one registry entry: the metadata the catalog publishes and the arithmetic
-// behind it.
+// Operation is one registry entry: what the catalog publishes and the arithmetic behind it.
 type Operation struct {
 	ID         string
 	Name       string
@@ -27,15 +23,13 @@ type Operation struct {
 	Arity      int
 	Parameters []Parameter
 
-	// Apply assumes len(operands) == Arity and that every operand is finite. The package
-	// function Apply is the guarded entry point that establishes both, and is what callers
-	// outside this package should use.
+	// Assumes len(operands) == Arity and every operand finite. The package-level Apply is
+	// the guarded entry point that establishes both.
 	Apply func(operands []float64) (float64, error)
 }
 
-// catalog is the single source of truth for routing, arity validation, and the catalog
-// response (ADR-0002). Adding an operation is one entry here and no other change; order is
-// published order.
+// The single source of truth for routing, arity validation and the catalog response
+// (ADR-0002). Adding an operation is one entry here. Order is published order.
 var catalog = []Operation{
 	{
 		ID:     "add",
@@ -115,8 +109,8 @@ var catalog = []Operation{
 			{Name: "radicand", Description: "The value whose square root is taken. Must not be negative."},
 		},
 		Apply: func(operands []float64) (float64, error) {
-			// Negative zero is not a negative number: math.Sqrt(-0) is -0, which Format
-			// normalizes. A sign-bit test here would reject it.
+			// A sign-bit test would reject negative zero, which is not negative.
+			// math.Sqrt(-0) is -0, which Format normalizes.
 			if operands[0] < 0 {
 				return 0, ErrNegativeSqrt
 			}
@@ -133,14 +127,14 @@ var catalog = []Operation{
 			{Name: "value", Description: "The value the percentage is taken of."},
 		},
 		Apply: func(operands []float64) (float64, error) {
-			// "a percent of b" (ADR-0010). The product is formed first, so a large enough
-			// pair overflows even where the true result is representable.
+			// "a percent of b" (ADR-0010). The product is formed first, so a large
+			// enough pair overflows where the true result would be representable.
 			return operands[0] * operands[1] / 100, nil
 		},
 	},
 }
 
-// registry is the only dispatch in the package; no branch anywhere names an operation.
+// The only dispatch in the package; no branch anywhere names an operation.
 var registry = func() map[string]Operation {
 	byID := make(map[string]Operation, len(catalog))
 	for _, operation := range catalog {
@@ -149,7 +143,7 @@ var registry = func() map[string]Operation {
 	return byID
 }()
 
-// Catalog returns every registered operation, in published order.
+// Catalog returns every operation in published order.
 func Catalog() []Operation {
 	operations := make([]Operation, len(catalog))
 	for i, operation := range catalog {
@@ -158,7 +152,7 @@ func Catalog() []Operation {
 	return operations
 }
 
-// Lookup resolves an operation identifier exactly; there is no normalization or near-match.
+// Lookup resolves an identifier exactly, with no normalization or near-match.
 func Lookup(id string) (Operation, bool) {
 	operation, ok := registry[id]
 	if !ok {
@@ -167,19 +161,16 @@ func Lookup(id string) (Operation, bool) {
 	return operation.clone(), true
 }
 
-// clone detaches an operation from the registry. Copying the struct alone would leave
-// Parameters aliasing registry state, so a caller editing what it was handed would corrupt
-// the catalog for every later request.
+// Detaches an operation from the registry. A bare struct copy would leave Parameters
+// aliasing registry state, which a caller could edit and corrupt every later request.
 func (o Operation) clone() Operation {
 	o.Parameters = append([]Parameter(nil), o.Parameters...)
 	return o
 }
 
-// Apply resolves an operation and runs it against operands.
-//
-// The guards run in a fixed order — existence, arity, operand finiteness, then the
-// computation — because the transport layer maps each to a different status (ADR-0004). A
-// request failing several at once is reported by the first.
+// Apply resolves an operation and runs it against operands. The guards run in a fixed
+// order (existence, arity, finiteness, computation) because the transport layer maps each
+// to a different status, and the first one to fail is what gets reported (ADR-0004).
 func Apply(id string, operands []float64) (float64, error) {
 	operation, ok := Lookup(id)
 	if !ok {
@@ -192,7 +183,7 @@ func Apply(id string, operands []float64) (float64, error) {
 	}
 
 	for i, operand := range operands {
-		// Positions are 1-based, matching the published messages.
+		// Positions are 1-based in the published messages.
 		if math.IsNaN(operand) || math.IsInf(operand, 0) {
 			return 0, fmt.Errorf("%s: position %d is %v: %w",
 				operation.ID, i+1, operand, ErrInvalidOperand)
@@ -204,7 +195,7 @@ func Apply(id string, operands []float64) (float64, error) {
 		return 0, fmt.Errorf("%s(%s): %w", operation.ID, joinOperands(operands), err)
 	}
 
-	// Non-finite values never reach the wire: finite operands can still produce Inf or NaN.
+	// Finite operands can still produce Inf or NaN, which never reach the wire.
 	if math.IsNaN(result) || math.IsInf(result, 0) {
 		return 0, fmt.Errorf("%s(%s) = %v: %w",
 			operation.ID, joinOperands(operands), result, ErrResultOverflow)

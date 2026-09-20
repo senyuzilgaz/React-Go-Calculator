@@ -16,9 +16,8 @@ import (
 	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/transport/httpapi"
 )
 
-// Deadlines for the connection, not for anything the handlers do. Constants rather than
-// settings: the API is pure computation with a 4 KiB body limit, so a request taking this
-// long is a stuck client rather than slow work.
+// Connection deadlines, not handler budgets. Constants rather than settings: the API is pure
+// computation behind a 4 KiB cap, so a request this slow is a stuck client.
 const (
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 10 * time.Second
@@ -33,8 +32,7 @@ func main() {
 	}
 }
 
-// run is main's body, taking its environment as arguments so the wiring can be exercised by
-// a test rather than only by starting the process.
+// main's body, taking its environment as arguments so a test can drive the wiring.
 func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) error {
 	settings, err := config.Load(getenv)
 	if err != nil {
@@ -54,8 +52,7 @@ func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) e
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 
-		// Routing net/http's own log.Logger into slog keeps every line the process emits
-		// in one structured stream.
+		// Keeps net/http's own log.Logger in the same structured stream.
 		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
@@ -82,8 +79,8 @@ func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) e
 	case <-ctx.Done():
 	}
 
-	// Stop intercepting signals before waiting, so a second Ctrl-C terminates immediately
-	// rather than sitting out the grace period.
+	// Stop intercepting first, so a second Ctrl-C terminates instead of waiting out the
+	// grace period.
 	stop()
 	logger.Info("shutting down", "grace", settings.ShutdownTimeout.String())
 

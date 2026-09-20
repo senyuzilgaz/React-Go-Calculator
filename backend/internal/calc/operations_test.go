@@ -166,7 +166,7 @@ func TestApplyDomainErrors(t *testing.T) {
 }
 
 // JSON cannot carry NaN or ±Inf, but the domain layer is the authority and rejects them
-// however they arrived — on every operation, at every position.
+// however they arrived, on every operation and at every position.
 func TestApplyRejectsNonFiniteOperands(t *testing.T) {
 	nonFinite := map[string]float64{
 		"NaN":       math.NaN(),

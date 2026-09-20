@@ -1,6 +1,5 @@
-// Package httpapi exposes the calculator over HTTP: routing, request decoding, error
-// classification, and middleware. It owns the wire; internal/calc owns the arithmetic
-// (ADR-0007).
+// Package httpapi exposes the calculator over HTTP: routing, decoding, error classification
+// and middleware. It owns the wire; internal/calc owns the arithmetic (ADR-0007).
 package httpapi
 
 import (
@@ -10,25 +9,22 @@ import (
 	"strings"
 )
 
-// The router and the endpoint published in the catalog are both built from this, so they
-// cannot disagree.
+// The router and the endpoint the catalog publishes are both built from this.
 const operationsPath = "/api/v1/operations"
 
-// Config is what the transport needs from its environment. Reading it is main's job.
+// What the transport needs from its environment. Reading it is main's job.
 type Config struct {
-	// AllowedOrigin enables CORS for exactly that origin. Empty disables it, which is the
-	// development default (ADR-0012).
+	// Enables CORS for exactly that origin. Empty disables it, the development default.
 	AllowedOrigin string
 
-	// Logger receives one line per request. Defaults to a discarding logger.
+	// One line per request. Defaults to a discarding logger.
 	Logger *slog.Logger
 }
 
-// NewRouter builds the handler for the whole API.
-//
-// Each path is registered twice, once with its method and once without: ServeMux prefers the
-// more specific pattern, so every other method falls through to the second registration and
-// answers 405 in the envelope. ServeMux's own 405 is plain text (ADR-0014).
+// NewRouter builds the handler for the whole API. Each path is registered twice, once with
+// its method and once without: ServeMux prefers the more specific pattern, so every other
+// method falls through and answers 405 in the envelope rather than ServeMux's own plain
+// text one (ADR-0014).
 func NewRouter(config Config) http.Handler {
 	logger := config.Logger
 	if logger == nil {
@@ -48,8 +44,8 @@ func NewRouter(config Config) http.Handler {
 
 	mux.HandleFunc("/", handleUnroutable)
 
-	// Innermost first: the correlation id must exist before anything logs, and the logger's
-	// defer must outlive the recovery so a panicking request is still recorded.
+	// Innermost first: the id must exist before anything logs, and the logger's defer must
+	// outlive the recovery so a panicking request is still recorded.
 	var handler http.Handler = mux
 	handler = corsPolicy(config.AllowedOrigin)(handler)
 	handler = recoverPanics(logger)(handler)

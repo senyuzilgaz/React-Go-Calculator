@@ -2,8 +2,8 @@ package calc
 
 import "errors"
 
-// The domain's failure modes, each mapping to exactly one wire code (ADR-0004), so callers
-// classify with errors.Is. This text is for logs; a client never sees it.
+// Each maps to one wire code (ADR-0004); callers classify with errors.Is. The text is for
+// logs and never reaches a client.
 var (
 	ErrUnknownOperation  = errors.New("unknown operation")
 	ErrWrongOperandCount = errors.New("wrong operand count")

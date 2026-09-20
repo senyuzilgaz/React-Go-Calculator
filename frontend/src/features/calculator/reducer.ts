@@ -141,10 +141,9 @@ export function calculatorReducer(
   }
 }
 
-// Characters that stand in for a catalog symbol a keyboard may have no key for — `^` is a
-// dead key on Turkish and German layouts, so it needs a letter too. It maps characters to
-// characters: no operation is named here, so an operation is still reachable by typing its own
-// symbol and the catalog stays the only list of them (ADR-0009).
+// Stand-ins for catalog symbols a keyboard may have no key for. `^` is a dead key on Turkish
+// and German layouts, so it needs a letter too. Character to character only: no operation is
+// named here, so the catalog stays the only list of them (ADR-0009).
 const SYMBOL_ALIASES: Record<string, string> = {
   '/': '÷',
   '*': '×',
