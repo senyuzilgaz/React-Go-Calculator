@@ -999,3 +999,86 @@ real `<button>` elements, which gives Enter and Space on a focused key but nothi
 - An operation whose symbol is more than one character (`mod`) is clickable but not typeable.
   Aliases are the escape hatch, and adding one is a character-to-character entry.
 - `c` and `C` clear, so an operation could not later use `c` as its symbol without colliding.
+
+## ADR-0024 — A carried entry is replaced, not extended
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** Pressing `√` with `5` displayed and then typing `3` computed `sqrt(53)`, not
+`sqrt(3)`. ADR-0020's reducer routes a digit to `right` when the selected operation is binary
+and to `left` otherwise, and `operationSelected` commits the displayed value to `left`. For a
+binary operation the digit lands in a slot that was just cleared, so entry starts fresh; for a
+unary one it lands in the slot just populated, so `appendDigit` concatenates. The reported
+sequence `√2 + √2` sent `{"operands":[22]}`, which read like broken chaining rather than one
+lost keystroke.
+
+Restarting entry was already the behaviour after a result, but it was inferred from
+`phase.kind === 'result'` — a condition that is about the request lifecycle, not about who put
+the value on screen.
+
+**Decision.** State carries `carriedEntry: boolean`, meaning the displayed value was placed
+there by the calculator rather than typed. It is set by `calculationSucceeded` and by
+`operationSelected`, cleared by any edit and by `cleared`, and it — not the phase — is what
+makes a digit or a decimal point start a new entry. `signToggled` continues to edit the carried
+value in place, so `√` then `±` negates the operand shown instead of discarding it.
+
+**Alternatives considered.**
+- *Clearing `left` when a unary operation is selected.* Two keystrokes would then be needed to
+  take the square root of what is already on screen, and `canSubmit` would go false for a
+  computation the user has fully expressed.
+- *A fourth phase, `carried`.* The phase union is the request lifecycle and is the dependency
+  of the hook's effect (ADR-0020); a value that has nothing to do with requests does not belong
+  in it.
+- *Fixing only the unary slot.* The same defect would return for any future arity-1 behaviour,
+  and the result-phase rule would stay expressed as a coincidence of the lifecycle.
+
+**Consequences.**
+- `√2 + √2` computes `sqrt(2)`: the second operation replaces the first, one operation at a
+  time per ADR-0009. The `+` is dropped silently, though the pending expression re-renders from
+  `2 +` to `√ 2`, which is the only signal the user gets. Chaining remains out of scope
+  (ADR-0013).
+- The reducer's identity rule needs the flag too: an edit that produces the same string as the
+  carried value (`5 √ 5`) must still return new state, or the flag would survive and the next
+  digit would restart again. A test covers exactly that.
+
+## ADR-0025 — A rejected computation is not submittable until the user answers it
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0020 stated that a failure "clears only the operand the user can retype — the
+second one — and keeps the left operand and the operation. `=` is disabled until a new operand
+is entered, so the same rejected computation cannot simply be re-sent." The reducer implemented
+that by clearing `right`, which holds for binary operations and silently does not for unary
+ones: `pendingRequest` reads only `left` when `arity === 1`, so after `√(-4)` returned
+`NEGATIVE_SQRT` the request was still fully formed and `=` stayed enabled. Every key of the
+identical failing computation could be re-sent by clicking it again. The rule was stated for the
+whole machine and enforced for half of it; the `a returned failure` tests were all binary, so
+nothing caught it.
+
+**Decision.** The guard is the unanswered failure itself, not the emptied slot. `pendingRequest`
+returns `null` while `state.error` is non-null. `error` is set only by `calculationFailed` and
+cleared by every action that changes what would be sent — any edit, selecting an operation,
+clearing — so "non-null" means exactly "the computation on screen is the one the server just
+rejected, unchanged". The rule now covers both arities from one condition rather than from a
+side effect of which slot a failure happens to empty.
+
+**Alternatives considered.**
+- *Clearing `left` for a unary operation, mirroring `right`.* Literally "clear the rejected
+  operand", but it erases the operand from the display and takes `±` — the one-press fix for the
+  negative input that causes almost every `NEGATIVE_SQRT` — away with it, since there would no
+  longer be a value to negate. ADR-0024 rejected clearing `left` on the same grounds.
+- *A `rejected: boolean` flag beside `carriedEntry`.* A second field that would have to be set
+  and cleared in exactly the places `error` already is, and could drift out of step with the
+  message the user is looking at.
+- *Comparing the pending request against the one that failed.* Precise, but it stores a request
+  to compare with and answers a question the presence of the message already answers.
+
+**Consequences.**
+- A unary failure keeps its operand on display: `√(-4)` shows `-4` under the message, `±` makes
+  it `4`, and `=` becomes available again at that keystroke.
+- `=` is now inert for the one render between a failure arriving and the user's next key, for
+  binary operations too. It was already inert there by way of the cleared `right`; the reason is
+  now the stated rule rather than a coincidence.
+- Re-selecting the same operation after a failure clears the message and does make the same
+  computation submittable again. That is a deliberate keypress rather than a stuck control, and
+  it follows the ADR-0020 rule that an operation key commits the displayed value.

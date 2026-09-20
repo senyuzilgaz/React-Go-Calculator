@@ -18,6 +18,10 @@ export interface CalculatorState {
   operation: Operation | null
   phase: CalculatorPhase
   error: string | null
+  // The displayed entry was placed there by the calculator, not typed, so a digit starts a
+  // new one instead of extending it. A unary operation edits the slot its operand already
+  // occupies, which is why selecting one sets this as a result does.
+  carriedEntry: boolean
 }
 
 export type CalculatorAction =
@@ -40,6 +44,7 @@ export const initialState: CalculatorState = {
   operation: null,
   phase: ENTERING,
   error: null,
+  carriedEntry: false,
 }
 
 export function calculatorReducer(
@@ -69,6 +74,7 @@ export function calculatorReducer(
         operation: action.operation,
         phase: ENTERING,
         error: null,
+        carriedEntry: true,
       }
     }
 
@@ -89,6 +95,7 @@ export function calculatorReducer(
         operation: null,
         phase: RESULT,
         error: null,
+        carriedEntry: true,
       }
     }
 
@@ -148,6 +155,11 @@ export function canSubmit(state: CalculatorState): boolean {
 function pendingRequest(state: CalculatorState): PendingCalculation | null {
   if (state.phase.kind !== 'entering') return null
 
+  // An unanswered failure still describes the computation the server just rejected. Every key
+  // that changes that computation clears the message, so this is what keeps a unary operand —
+  // the one on display, which no failure can clear — from being resent unchanged (ADR-0025).
+  if (state.error !== null) return null
+
   const { operation } = state
   if (operation === null) return null
 
@@ -169,18 +181,18 @@ function pendingRequest(state: CalculatorState): PendingCalculation | null {
 function editEntry(
   state: CalculatorState,
   edit: (entry: string | null) => string,
-  afterResult: 'restart' | 'continue',
+  onCarried: 'restart' | 'continue',
 ): CalculatorState {
   if (state.phase.kind === 'calculating') return state
 
   const slot = state.operation?.arity === 2 ? 'right' : 'left'
   const current = slot === 'right' ? state.right : state.left
-  const restarting = state.phase.kind === 'result' && afterResult === 'restart'
+  const restarting = state.carriedEntry && onCarried === 'restart'
 
   const edited = edit(restarting ? null : current)
-  if (edited === current && state.phase.kind === 'entering' && state.error === null) return state
+  if (edited === current && !state.carriedEntry && state.error === null) return state
 
-  const next: CalculatorState = { ...state, phase: ENTERING, error: null }
+  const next: CalculatorState = { ...state, phase: ENTERING, error: null, carriedEntry: false }
   if (slot === 'right') next.right = edited
   else next.left = edited
 

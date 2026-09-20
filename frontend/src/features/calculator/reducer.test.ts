@@ -132,6 +132,54 @@ describe('choosing an operation', () => {
   })
 })
 
+describe('an operand carried into a unary operation', () => {
+  const calculating = (request: { operation: string; operands: number[] }) => ({
+    kind: 'calculating',
+    request,
+  })
+
+  it('is replaced by the digits typed after the operation', () => {
+    const state = run([...keys('5'), select(SQRT), ...keys('3')])
+
+    expect(state.left).toBe('3')
+    expect(displayValue(state)).toBe('3')
+  })
+
+  it('keeps collecting the digits of that new entry', () => {
+    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('12')]))).toBe('12')
+  })
+
+  it('is replaced even by a digit it already reads as', () => {
+    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('55')]))).toBe('55')
+  })
+
+  it('is replaced by a decimal point starting a new entry', () => {
+    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('.5')]))).toBe('0.5')
+  })
+
+  it('is computed on when the operation is submitted untouched', () => {
+    expect(run([...keys('12'), select(SQRT), submit]).phase).toEqual(
+      calculating({ operation: 'sqrt', operands: [12] }),
+    )
+  })
+
+  it('is computed on with its sign toggled rather than replaced', () => {
+    expect(displayValue(run([...keys('5'), select(SQRT), sign]))).toBe('-5')
+  })
+
+  it('never joins the operand typed after it into one number', () => {
+    expect(run([...keys('5'), select(SQRT), ...keys('3'), submit]).phase).toEqual(
+      calculating({ operation: 'sqrt', operands: [3] }),
+    )
+  })
+
+  it('applies to the last operand entered, one operation at a time (ADR-0009)', () => {
+    const state = run([select(SQRT), ...keys('2'), select(ADD), select(SQRT), ...keys('2'), submit])
+
+    expect(state.phase).toEqual(calculating({ operation: 'sqrt', operands: [2] }))
+  })
+})
+
 describe('the pending expression', () => {
   it('is absent until an operation is chosen', () => {
     expect(pendingExpression(initialState)).toBeNull()
@@ -285,6 +333,36 @@ describe('a returned failure', () => {
     const state = run([...keys('1'), select(ADD), ...keys('2'), submit, clear])
 
     expect(calculatorReducer(state, failed('Cannot divide by zero.'))).toBe(state)
+  })
+
+  const rejectedRoot = () =>
+    run([...keys('4'), sign, select(SQRT), submit, failed('Cannot take the square root…')])
+
+  it('keeps a unary operand on display, since there is no second one to clear', () => {
+    const state = rejectedRoot()
+
+    expect(state.left).toBe('-4')
+    expect(state.operation).toBe(SQRT)
+    expect(displayValue(state)).toBe('-4')
+  })
+
+  it('cannot be resent unchanged when the rejected operand is the one on display', () => {
+    expect(canSubmit(rejectedRoot())).toBe(false)
+  })
+
+  it('is submittable again once a unary operand is corrected in place', () => {
+    const state = calculatorReducer(rejectedRoot(), sign)
+
+    expect(displayValue(state)).toBe('4')
+    expect(canSubmit(state)).toBe(true)
+    expect(state.error).toBeNull()
+  })
+
+  it('is submittable again once a unary operand is retyped', () => {
+    const state = run(keys('9'), rejectedRoot())
+
+    expect(displayValue(state)).toBe('9')
+    expect(canSubmit(state)).toBe(true)
   })
 })
 

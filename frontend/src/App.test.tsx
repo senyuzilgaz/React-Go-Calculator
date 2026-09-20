@@ -276,4 +276,26 @@ describe('App', () => {
     await catalogLoaded()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('sends the operand typed after a unary key, not the one it replaced', async () => {
+    let body: unknown
+    server.use(
+      http.post('/api/v1/operations/sqrt', async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ operation: 'sqrt', operands: [3], result: '1.73205080757' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Square root' }))
+    await user.click(screen.getByRole('button', { name: '3' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('1.73205080757')
+    expect(body).toEqual({ operands: [3] })
+  })
 })
