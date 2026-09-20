@@ -561,3 +561,63 @@ actual response structures — never written by hand.
 - Where a raw float64 differs from the returned string, the document shows both, so the rounding
   policy is demonstrated rather than asserted.
 - The file is structured for extraction into the README, including a status/code summary table.
+
+## ADR-0017 — Transport package location and the routing decisions it forced
+
+**Status:** Accepted · 2026-09-20
+**Amends:** ADR-0007 (the `internal/httpapi/` path only; the rest of ADR-0007 remains in
+force and is not superseded)
+
+**Context.** ADR-0007 placed the HTTP layer at `internal/httpapi/`. The package was built at
+`internal/transport/http/` instead, which names the layer by what it is — one transport —
+rather than by the protocol it happens to speak. Writing the package also settled several
+routing questions the contract describes the output of but not the mechanism for.
+
+**Decision.**
+
+- The HTTP layer lives at `internal/transport/http/`, package `http`. It imports `net/http`
+  normally; a package's own name is not bound in its own file scope, so there is no
+  ambiguity. A second transport, if one is ever added, sits beside it rather than inside it.
+- **Every path is registered twice**, once with its method and once without. `ServeMux`
+  prefers the more specific pattern, so a supported method reaches the handler and every
+  other method falls through to the second registration. ADR-0014 assumed `ServeMux`'s
+  automatic 405 was sufficient; it is not, because that 405 is `text/plain` and the
+  contract publishes a JSON envelope with an `Allow` header for it.
+- **Operation existence is resolved before the request body is read.** A `POST` to an
+  operation that does not exist is `404 UNKNOWN_OPERATION` whatever the body contains. The
+  path segment names a resource (ADR-0002), and a malformed body for a resource that does
+  not exist is not the more useful thing to report.
+- **Unroutable paths answer in the envelope too**, as `404 UNKNOWN_OPERATION` with a
+  generic message. `UNKNOWN_OPERATION` is the only 404 in the closed enum of ADR-0004.
+  This keeps the promise that every response from the API is JSON, at the cost of a code
+  that reads oddly for a path like `/metrics`.
+- **Operands are decoded one element at a time**, into `[]json.RawMessage` rather than
+  `[]float64`, so a bad element is reported with its position as the contract requires.
+  JSON `null` is rejected explicitly, because it unmarshals into a `float64` without error
+  and would otherwise arrive silently as zero.
+- **An inbound `X-Request-Id` is echoed only if it is printable ASCII and at most 128
+  characters**, and replaced otherwise. The value is attacker-controlled and reaches every
+  log line for the request.
+- The request body is capped at 4 KiB, reported as `INVALID_JSON` per ADR-0014.
+
+**Alternatives considered.**
+- *`internal/httpapi/` as originally written.* Shorter, and avoids a package named after a
+  stdlib one. Rejected for the seam: `transport/` states that HTTP is one way in rather
+  than the only one, which is the same argument ADR-0001 makes about `internal/calc`.
+- *Rewriting `ServeMux`'s plain-text 405 in middleware* by intercepting the status and
+  substituting a body. Fewer registrations, but it recovers routing information after the
+  router has already discarded it, and the `Allow` header would have to be trusted from a
+  response already written.
+- *Letting unrouted paths keep the stdlib's `text/plain` 404.* Honest about being outside
+  the contract, but a JSON API that sometimes answers in prose is worse for a client than
+  one that reuses a slightly ill-fitting code.
+
+**Consequences.**
+- Adding a route means two registrations, not one. The pairing is mechanical and visible in
+  a single function; a missed second registration shows up as a plain-text 405 in the
+  routing test.
+- `calc.ErrInvalidOperand` is now unreachable from HTTP, because the decoder rejects
+  non-numeric operands before `calc.Apply` is called. Its mapping is kept and tested
+  directly, so a future change to the decode path degrades to a `400` rather than a `500`.
+- Panic recovery cannot be provoked through the router, since no handler panics. That
+  middleware is tested around a handler that does, still over a real server.
