@@ -239,3 +239,157 @@ which `SO_REUSEADDR` allows to coexist.
 **Outcome:** The Session 2 record above, appended without editing Session 1.
 
 ---
+
+---
+
+## Session 3 — Frontend implementation
+
+**Agent:** Claude Opus 5 (Claude Code)
+**Date:** 2026-09-20, 18:23 – 19:20 (UTC+03)
+**Produced:** `frontend/` (Vite + React + TypeScript scaffold, `src/api/`,
+`src/features/calculator/`, `src/test/`, `vite.config.ts` with the dev proxy, `README.md`),
+ADR-0019, ADR-0020 and ADR-0021 appended to `docs/DECISIONS.md`, and the Session 3 record below.
+**Scope:** The whole frontend, built against the same contract as the backend. None of the
+delivery artifacts from ADR-0012 (`Dockerfile`, `docker-compose.yml`, `Makefile`, root README),
+and no global keyboard handling.
+
+**On timestamps.** Times below are mtimes of the artifacts each turn produced, corroborated by
+the `Start at` line of the Vitest run that closed each turn. Several files were rewritten by a
+later turn — turn 2 re-wrote every file turn 1 produced, and turn 5 edited turn 4's reducer — so
+those turns are given as bounded ranges from the runs rather than from mtimes that no longer
+belong to them.
+
+### 1 — Scaffold, contract types, and the API client
+
+*2026-09-20, 18:23 – 18:31 (`frontend/` created 18:23; `src/api/client.test.ts` 18:28,
+`package.json` 18:29; the rest of the turn's files carry 18:34, when turn 2 rewrote them)*
+
+```text
+We are going to implement frontend with reacht and typescript to our calculator app. @Sezzle-Technical-Assignment/api/openapi.yaml  @Sezzle-Technical-Assignment/docs/DECISIONS.md 
+
+Set up the frontend. I have vite + react + typescript with vitest + react testing library and msw for testing in my mind but feel free to recommend and alternative if you think something might be more suitable. 
+
+src/api types.ts should be written directly from the contract Ive shared as I dont have to mention that its the contract also backend server is built on so everything should be always traced back to contract. we need a get operations function for operations discovery and calculate functions both taking abort signal and throw typed calcError with the correct error code server is returning of course errors.ts mapping them to ui errors
+
+shall we also set up vite dev proxy so that cors is never issue four our tests and other people using it
+```
+
+**Outcome:** Vite 8 / React 19 / TypeScript 6 scaffold with Vitest, React Testing Library and
+MSW; 32 tests. The proposed stack was kept — it is already ADR-0008 and ADR-0011 — and MSW
+endorsed on the grounds that it exercises real `fetch` against real `Response` objects, which a
+stubbed `fetch` would not. `types.ts` mirrors `api/openapi.yaml` and nothing else; `OperationId`
+was left an **open** union because the catalog is authoritative at runtime and a closed union
+would make a newly registered operation a type error. `errors.ts` carries `CalcError` with the
+contract's nine codes plus `NETWORK_ERROR` and `MALFORMED_RESPONSE`, a total code-to-message
+record, and the decision that an unrecognised server code is `MALFORMED_RESPONSE` rather than a
+relabelled `INTERNAL_ERROR`. The dev proxy was added for `dev` and `preview`, and verified
+against the running Go service through `:5173` — catalog, `0.1 + 0.2` returning `"0.3"`,
+`1 ÷ 0` returning `422 DIVISION_BY_ZERO`, and `/healthz`. ADR-0019 appended.
+
+### 2 — Comment policy
+
+*2026-09-20, ~18:34 (`vite.config.ts`, `src/api/*.ts`, `src/test/*.ts`)*
+
+```text
+great but pleae only add comments when its completely necessary and even its encessary then keep it as concise as possible as it disrupts the readability
+```
+
+**Outcome:** Comments cut from every file written so far, to fourteen lines in total across the
+API layer and test setup. What survived: the open-union rationale, `result` being rendered
+verbatim, `AbortError` being discriminated by name, the totality of the message record, and the
+guard that rejects a numeric `result`. What went: the module-header essays and every line that
+restated the code beneath it.
+
+### 3 — The reducer's tests, before the reducer
+
+*2026-09-20, ~18:47 (red Vitest run at 18:47; `reducer.test.ts` and `reducer.ts` carry 19:03,
+when turn 5 added the pending-expression selector)*
+
+```text
+Now we are going to implement reducers for calculator but as its very important we will create the tests first for src/features/calculator/reducer.ts 
+
+The reducer should be oure with no react and not fetch. Frontend should not cmpute anything
+```
+
+**Outcome:** 38 tests and a signature-only stub, so the specification compiled and failed on
+behaviour rather than on imports — every test red with `calculatorReducer is not implemented`.
+Writing the tests first forced six rules to be stated as assertions and put back for review
+before any of them was implemented: unary as postfix (`9 √ =`) so one rule covers both arities;
+an operator mid-entry re-anchoring rather than chaining; `±` editing a returned result into the
+next operand; a failure clearing only the operand that can be retyped; every key inert while a
+calculation is in flight except `C`; and ignored actions returning the identical state object,
+which is what makes "one `=` is one API call" structural. Operation fixtures are read from the
+catalog fixture, so arity and ids trace to the contract.
+
+### 4 — The reducer, and `useCalculator`
+
+*2026-09-20, 18:54 – 18:57 (reducer green at 18:54, `src/test/operations.ts` 18:55,
+`useCalculator.test.ts` 18:56; ADR-0020 appended before 19:03)*
+
+```text
+great, now implement reducer.ts to pass the tests and implement something like useCalculator which should save teh reducer state, call the api client and exposes state dispatch status error and maybe history what do you think. Should we also cancel in flight requests if a new request starts?
+
+Just wanted to remind you that everyything related to calcualtor logic shoul stay in reducer and if you ever find yourself writing an if statement aboutdigits inside a hook it belogns to reducer please move it to there and add tests
+```
+
+**Outcome:** All 38 reducer tests passed against the implementation as specified; no test was
+changed to fit the code. `useCalculator` holds the reducer and issues exactly the request the
+calculating phase describes, keyed on `state.phase` identity. Cancellation was added — the
+effect's cleanup aborts the signal — with the observation that it covers only clearing and
+unmounting, since no new computation can start while one is in flight; the reducer also drops
+any response arriving outside the calculating phase. Two of the four hook tests failed at first;
+a probe established that MSW does propagate client aborts and that the tests were aborting
+before the request reached the handler, so the tests were fixed rather than the hook. History
+was declined for now: ADR-0013 lists calculation history as out of scope and nothing renders it
+— noted as an append on `calculationSucceeded` in the reducer if that changes. ADR-0020 appended.
+
+### 5 — Display and keypad
+
+*2026-09-20, 19:03 – 19:13 (`Display.tsx`, `Keypad.tsx`, `calculator.css`, `App.tsx` 19:03,
+`useOperations.ts` 19:04, `frontend/README.md` 19:06; ADR-0021 appended, `docs/DECISIONS.md`
+19:13)*
+
+```text
+perfect, now lets implement calculator display and keypad tsx undeer features/calculator. Keypad should render its operation buttons from the operations endpoint served by backend so adding an operation in go surfaces in the ui without any frontend change. Show a loading state while the catalog fetched and something taht makes sense if it fails. No history logic for now.
+
+Keep all these very dumb with no logic just real button elements
+```
+
+**Outcome:** `Display` and `Keypad` take props and render real `<button>` elements, with `App`
+as the only place an intent becomes an action; `useOperations` owns the catalog fetch and a
+user-initiated retry. No operation is named anywhere in application code, proven by a test that
+serves an operation this codebase has never heard of and drives a computation through it to
+`/api/v1/operations/modulo`. Two things were moved rather than left where they first landed: the
+pending-expression line, written into `App` as string formatting over calculator state, became
+`pendingExpression` in the reducer with five tests — per this session's standing instruction;
+and oxlint caught `setLoading(true)` firing synchronously inside the catalog effect, which moved
+into the `reload` handler that causes it. 84 tests. ADR-0021 appended.
+
+### 6 — Component tests
+
+*2026-09-20, 19:14 – 19:16 (`Display.test.tsx` 19:14, `Keypad.test.tsx` and `App.test.tsx`
+19:15)*
+
+```text
+nice one. now lets add the rtl tests for these compentents with msw ahndlers.
+cover real interactions like typing 12 / 4 and presisng equals shows 3 , 422 error on dividing 0 renders friendly ui never the raw server string keypad renders form th mock catalog
+```
+
+**Outcome:** 101 tests. The components are tested through props and spies rather than MSW,
+since neither contains a network — the MSW-driven interactions live at `App`, where one does:
+`12 ÷ 4` asserting the body `{"operands":[12,4]}` and a rendered `3`, the keypad rendered from
+the catalog at both levels, and a 422 whose handler returns a deliberately leaked-looking
+`divide(1, 0): calc: division by zero`, with the test asserting the friendly message appears and
+that prose appears nowhere in the document. That last assertion was mutation-checked: dispatching
+`error.message` instead of `uiMessage(error)` failed exactly that test, and the change was
+reverted.
+
+### 7 — This record
+
+*2026-09-20, ~19:20*
+
+```text
+@PROMPTS.md record the prompts use in this session. You were responsible for the frontend dev
+```
+
+**Outcome:** The Session 3 record above, appended without touching Sessions 1 or 2.
