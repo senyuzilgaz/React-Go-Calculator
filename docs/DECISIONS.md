@@ -621,3 +621,51 @@ routing questions the contract describes the output of but not the mechanism for
   directly, so a future change to the decode path degrades to a `400` rather than a `500`.
 - Panic recovery cannot be provoked through the router, since no handler panics. That
   middleware is tested around a handler that does, still over a real server.
+
+## ADR-0018 — Configuration is read once, validated strictly, and never defaulted silently
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0012 named `ALLOWED_ORIGIN` and the `log/slog` JSON handler but did not say
+how settings are read, what happens when one is wrong, or which knobs exist at all.
+
+**Decision.** `internal/config` reads four variables, each with a working default:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PORT` | `8080` | Bound on every interface; a loopback bind is unreachable from a container |
+| `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error`, case-insensitive |
+| `ALLOWED_ORIGIN` | unset | Enables CORS for exactly that origin; unset disables it |
+| `SHUTDOWN_TIMEOUT` | `10s` | Grace period for in-flight requests on `SIGINT`/`SIGTERM` |
+
+- **A malformed value is a startup failure, never a silent fallback.** A service that
+  quietly ignores `PORT=htp` and listens somewhere else is harder to diagnose than one that
+  refuses to start and says which variable is wrong.
+- **Every problem is reported together**, via `errors.Join`, so a misconfigured deployment
+  takes one restart to diagnose rather than four.
+- **`ALLOWED_ORIGIN` must be a bare origin.** `*`, a trailing slash, or a path are rejected
+  at startup. The CORS middleware compares the value to the `Origin` header exactly, so
+  `https://app.example/` would deploy cleanly and then match nothing — a failure that shows
+  up as a browser error with no server-side trace.
+- **`Load` takes the lookup function as an argument** rather than calling `os.Getenv`, so
+  configuration is tested without mutating process state.
+- **Connection timeouts are constants in `main`, not settings.** The API is pure
+  computation behind a 4 KiB body cap; a request outside these bounds is a stuck client,
+  not slow work, and no deployment has a reason to differ.
+
+**Alternatives considered.**
+- *Falling back to defaults on a bad value, with a warning.* Keeps the service up, which is
+  the wrong instinct for a value that changes where it listens or who may call it.
+- *A flags-and-env library (viper, kong).* A dependency and a config file format to answer
+  four environment variables.
+- *Prefixing the variables (`CALC_PORT`).* Avoids collisions in a shared environment, but
+  `PORT` is the convention nearly every container platform already sets.
+
+**Consequences.**
+- `main` is wiring only: load config, build the logger, build the router, run the server,
+  shut it down. It holds no arithmetic, no routing, and no policy.
+- `run` takes its context, environment, and log destination as arguments, so the wiring is
+  covered by a test that starts a real listener, serves the contract, and cancels.
+- `main` itself and the `ErrServerClosed` guard in the shutdown select are the only
+  uncovered statements in the backend. The first ends in `os.Exit`; the second is the
+  standard guard against reporting a clean stop as a failure.
