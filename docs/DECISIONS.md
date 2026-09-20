@@ -1082,3 +1082,56 @@ side effect of which slot a failure happens to empty.
 - Re-selecting the same operation after a failure clears the message and does make the same
   computation submittable again. That is a deliberate keypress rather than a stuck control, and
   it follows the ADR-0020 rule that an operation key commits the displayed value.
+
+---
+
+## ADR-0026 — One image runs both halves, nginx in front of the API on loopback
+
+**Status:** Accepted · 2026-09-20
+
+**Amends:** ADR-0012 (the packaging clauses only; its CORS, logging and observability decisions
+stand unchanged)
+
+**Context.** ADR-0012 planned a multi-stage `Dockerfile` for the Go service with a distroless
+final image, and a `docker-compose.yml` placing that service and the built frontend behind
+nginx. What was asked for is a single image that runs the frontend and backend together. The
+two are not compatible: a distroless image contains no nginx and no shell, so the container
+that serves the static bundle cannot also be the one that runs the API.
+
+**Decision.** One `Dockerfile` at the repository root, three stages: Node builds the frontend,
+Go builds a static binary, and `nginx:alpine` is the runtime carrying both artifacts.
+
+1. nginx listens on `:80` and is the only published port. It serves `dist/` and proxies `/api/`
+   and `/healthz` to the Go binary on `127.0.0.1:8080`, which is never exposed.
+2. Because every request arrives at one origin, `ALLOWED_ORIGIN` stays empty and the CORS
+   middleware stays off — the same arrangement the Vite dev proxy gives locally (ADR-0012).
+3. `deploy/entrypoint.sh` is PID 1. It starts both processes, forwards `SIGTERM` to them, and
+   exits as soon as either one does, so a crashed API takes the container down instead of
+   leaving nginx serving a UI whose every calculation fails.
+4. The proxy sets no `client_max_body_size`. The handler's own 4 KiB limit already answers an
+   oversized body with the API's error envelope (ADR-0004); an nginx-generated 413 HTML page
+   would replace it with something outside the contract.
+5. `HEALTHCHECK` fetches `/healthz` through the proxy, which passes only when both processes
+   are answering.
+
+**Alternatives considered.**
+- *Two images and a compose file, as ADR-0012 planned.* The better production shape — each half
+  scales and restarts independently — but it is not one image, and running the exercise then
+  needs an orchestrator rather than `docker run`.
+- *Serving `dist/` from the Go binary.* One process, no shell, distroless intact. Rejected
+  because it puts static-file serving and cache-control policy inside the transport package for
+  a packaging reason, and ADR-0012 already names nginx as what serves the frontend.
+- *`supervisord` or `s6-overlay` as PID 1.* A supervisor's job is restarting what it watches;
+  here a dead process should stop the container, which is twenty lines of `sh`.
+- *`wait -n` instead of the poll loop.* Blocks until the first child exits, which is exactly
+  what is wanted, but `sh` runs a trap only between foreground commands — a blocking `wait`
+  would swallow `SIGTERM` until a child happened to exit.
+
+**Consequences.**
+- The final image carries nginx, a shell and busybox rather than the distroless base ADR-0012
+  named. That is the price of one container, and the surface is an nginx image's, not a
+  full distribution's.
+- Both processes run as root, as the stock nginx image does; binding `:80` requires it.
+- Signal delivery is up to one second behind the poll interval, which shutdown timeouts absorb.
+- There is still no `docker-compose.yml` or `Makefile`. ADR-0012 named both; neither has a
+  consumer while there is one image and one command.
