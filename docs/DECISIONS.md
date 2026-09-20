@@ -742,3 +742,80 @@ those questions and a few more.
   for that.
 - Serving the frontend from a different origin than the API needs a change here. That is
   deliberate — no deployment in ADR-0012 does it.
+
+---
+
+## ADR-0020 — The calculator state machine, and what the hook is not allowed to decide
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0009 fixed the interaction model — a reduced state machine, one API call per
+`=`, no client arithmetic — but not the keystroke rules that follow from it. Writing the tests
+before the reducer forced each one to be stated as an assertion rather than discovered while
+implementing.
+
+**Decision.**
+
+- **All calculator logic lives in `features/calculator/reducer.ts`**, which imports nothing from
+  React and nothing that performs I/O. The hook holds no rule about digits, operands, or
+  operations; if a condition about a key ever appears in the hook, it belongs in the reducer.
+- **The phase carries the pending request:**
+  `{ kind: 'entering' } | { kind: 'calculating', request } | { kind: 'result' }`. A request
+  cannot exist without the calculating phase and the phase cannot exist without a request, so
+  "one `=` is one call" is a property of the shape rather than a convention to maintain.
+- **An action the machine ignores returns the state object it was given.** React then skips the
+  render, and the hook can depend on `state.phase` identity: the effect that issues the request
+  runs exactly once per calculation, and no key pressed mid-flight can start a second one.
+- **One rule covers every operation key:** pressing it commits *the displayed value* as the left
+  operand and then waits for `arity - 1` more. Binary operations wait for a second operand;
+  `√` becomes submittable at once. The same rule is what re-enters a returned result as the next
+  left operand (ADR-0009), so that behaviour is not a special case.
+- **An operator pressed mid-entry re-anchors rather than chains.** `12 ÷ 4 +` leaves `4` as the
+  left operand of `+`; nothing is computed, because computing is the server's job and chaining
+  is out of scope.
+- **`±` edits the entry, including a returned result**, turning `0.3` into `-0.3` as the next
+  operand. It prefixes a character to a literal and performs no arithmetic; the result is no
+  longer a result once the user has edited it, so the phase returns to `entering`.
+- **A failure clears only the operand the user can retype** — the second one — and keeps the
+  left operand and the operation. `=` is disabled until a new operand is entered, so the same
+  rejected computation cannot simply be re-sent.
+- **Every key is inert while a calculation is in flight except `C`,** which resets the machine.
+- **`Number()` at the request boundary is the only place a typed string becomes a number**, and
+  it parses a literal rather than computing with it. Operands are sent as JSON numbers, results
+  come back as strings, and no state field is ever derived arithmetically from another.
+
+**The hook.** `useCalculator` owns the reducer, issues the request the calculating phase
+describes, and maps a `CalcError` to its message through `uiMessage` before dispatching it back.
+It exposes `state`, `dispatch`, and the derived `status`, `display`, `canSubmit`, and `error`.
+
+- **A request in flight is cancelled when the user leaves it** — clearing, or unmounting — by
+  the effect's cleanup aborting the signal the client already accepts (ADR-0019). Because no new
+  computation can start while one is in flight, those are the only two cases; there is no
+  "newer request supersedes older" race to resolve.
+- **A response that arrives anyway is ignored by the reducer**, which drops any result or
+  failure that reaches it outside the calculating phase. The abort makes that rare and the guard
+  makes it harmless.
+
+**Alternatives considered.**
+- *Unary as a prefix (`√` then the operand).* Matches ADR-0009's `(operation, operand)` notation
+  literally, but needs a second rule for how the operation key treats the current entry, and the
+  keys would behave differently depending on arity.
+- *Evaluating a pending computation when a second operator is pressed*, the way a physical
+  calculator chains. It is client-side arithmetic by another name unless it issues a second
+  request, and ADR-0009 rules both out.
+- *A session history of completed computations.* Deliberately not built: ADR-0013 lists
+  calculation history as out of scope, and there is no UI that shows it. It is an append on
+  `calculationSucceeded` in the reducer if that changes — not a field the hook accumulates.
+- *Intent callbacks (`pressDigit`, `selectOperation`) instead of exposing `dispatch`.* Stable
+  references and a narrower surface, but every one of them would be a wrapper with no logic in
+  it, and the temptation to put a condition in one is exactly what this entry forbids.
+- *Storing the display string in state.* It is `right ?? left ?? "0"`; derived state that can
+  disagree with what it is derived from is a bug waiting to be written.
+
+**Consequences.**
+- The reducer is testable without React, a DOM, or a network: 38 tests construct states by
+  folding actions, which is also where the no-arithmetic invariant is proven.
+- Adding a rule means adding a test and a case, and the keypad stays a rendering of `display`,
+  `canSubmit`, and the catalog.
+- `C` is the only escape from a slow request. There is no timeout; a request that never answers
+  leaves the calculator in `calculating` until the user clears it.

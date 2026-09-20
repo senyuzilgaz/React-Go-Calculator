@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { KnownOperationId, Operation } from '../../api/types'
-import { CATALOG } from '../../test/catalog'
+import type { Operation } from '../../api/types'
+import { operationById } from '../../test/operations'
 import {
   calculatorReducer,
   canSubmit,
@@ -11,12 +11,6 @@ import {
   type CalculatorState,
   type Digit,
 } from './reducer'
-
-function operationById(id: KnownOperationId): Operation {
-  const operation = CATALOG.operations.find((candidate) => candidate.id === id)
-  if (!operation) throw new Error(`the catalog fixture has no operation '${id}'`)
-  return operation
-}
 
 const ADD = operationById('add')
 const DIVIDE = operationById('divide')
