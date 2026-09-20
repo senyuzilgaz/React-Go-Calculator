@@ -100,6 +100,68 @@ describe('App', () => {
     expect(body).toEqual({ operands: [7, 3] })
   })
 
+  it('computes from the physical keyboard', async () => {
+    let body: unknown
+    server.use(
+      http.post('/api/v1/operations/divide', async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ operation: 'divide', operands: [12, 4], result: '3' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.keyboard('12/4{Enter}')
+
+    expect(await screen.findByRole('status')).toHaveTextContent('3')
+    expect(body).toEqual({ operands: [12, 4] })
+  })
+
+  it('accepts typing after a key has been clicked, and submits on =', async () => {
+    server.use(
+      http.post('/api/v1/operations/add', () =>
+        HttpResponse.json({ operation: 'add', operands: [1, 2], result: '3' }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('button', { name: 'Addition' }))
+    await user.keyboard('2=')
+
+    expect(await screen.findByRole('status')).toHaveTextContent('3')
+  })
+
+  it('clears from the keyboard', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.keyboard('12/4')
+    expect(screen.getByRole('status')).toHaveTextContent('4')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.getByRole('status')).toHaveTextContent('0')
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeDisabled()
+  })
+
+  it('leaves enter to the key that has focus', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '7' }))
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByRole('status')).toHaveTextContent('77')
+  })
+
   it('cannot submit an incomplete computation', async () => {
     const user = userEvent.setup()
     render(<App />)

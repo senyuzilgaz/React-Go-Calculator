@@ -952,3 +952,50 @@ four are recorded here because each reverses something an earlier entry stated.
   prose appears only where the code cannot carry the meaning; three of these four defects
   were in code carrying a comment that asserted the property it did not have, which is the
   argument for fewer comments rather than more.
+
+---
+
+## ADR-0023 — Physical keyboard input, mapped through the catalog
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0008 promised full keyboard support on desktop. ADR-0021 delivered a keypad of
+real `<button>` elements, which gives Enter and Space on a focused key but nothing else: typing
+`12/4` did nothing at all. The gap was reported from use.
+
+**Decision.**
+
+- **What a keystroke means is calculator logic, so `actionForKey(key, operations)` lives in the
+  reducer module** as a pure function returning an action or `null`. The hook that listens for
+  `keydown` decides nothing; it asks and dispatches.
+- **Operator keys resolve through the catalog by symbol**, not through a table of operation
+  identifiers. A small alias map translates characters a keyboard has to characters the catalog
+  publishes — `/`→`÷`, `*` and `x`→`×`, `-`→`−`, `r`→`√` — and the symbol is then looked up in
+  the operations the server sent. Typing an operation's own symbol works without an alias, so an
+  operation added in Go with a single-character symbol is typeable with no frontend change, the
+  same property ADR-0009 requires of the keypad.
+- **`Enter` and `Space` are left to whichever key has focus.** They are how a button is
+  activated, and stealing them would break keyboard navigation of the keypad. `=` submits
+  regardless of focus, so a user who has been clicking can still finish from the keyboard.
+- **Text-entry elements keep their keys** (`input`, `textarea`, `select`, anything
+  `contenteditable`), and any keystroke carrying Meta, Control or Alt is left to the browser.
+  Everything else is the calculator's, and a key the calculator maps is `preventDefault`ed.
+- **Backspace is not mapped**, because the state machine has no action for it. Correcting a
+  digit means `C`, as it does on the keypad.
+
+**Alternatives considered.**
+- *Mapping keys to operation ids (`/` → `divide`).* Simpler to read, and it would put the seven
+  operation names back into frontend code — undoing the property the catalog exists to provide.
+- *Taking `Enter` globally and `preventDefault`ing the focused button's activation.* Matches
+  what a calculator user expects after clicking, but breaks Enter on the catalog's `Try again`
+  button and on every future control, for a case `=` already covers.
+- *A `tabIndex` container with `onKeyDown` instead of a window listener.* Scopes the listener
+  properly, but only works while the container has focus, so typing would do nothing until the
+  user clicked the page first.
+
+**Consequences.**
+- Pressing Enter with a keypad button focused re-activates that button rather than submitting.
+  That is the browser's behaviour for buttons and is now covered by a test that states it.
+- An operation whose symbol is more than one character (`mod`) is clickable but not typeable.
+  Aliases are the escape hatch, and adding one is a character-to-character entry.
+- `c` and `C` clear, so an operation could not later use `c` as its symbol without colliding.

@@ -1,6 +1,7 @@
 import { Display } from './features/calculator/Display'
 import { Keypad } from './features/calculator/Keypad'
 import { useCalculator } from './features/calculator/useCalculator'
+import { useKeyboard } from './features/calculator/useKeyboard'
 import { useOperations } from './features/calculator/useOperations'
 import './App.css'
 import './features/calculator/calculator.css'
@@ -8,6 +9,8 @@ import './features/calculator/calculator.css'
 export default function App() {
   const { dispatch, status, display, pending, canSubmit, error } = useCalculator()
   const catalog = useOperations()
+
+  useKeyboard(catalog.operations, dispatch)
 
   const calculating = status === 'calculating'
 

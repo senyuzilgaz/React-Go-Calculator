@@ -100,6 +100,29 @@ export function calculatorReducer(
   }
 }
 
+// Typed characters that stand in for a catalog symbol no keyboard has a key for. It maps
+// characters to characters: no operation is named here, so an operation is still reachable by
+// typing its own symbol and the catalog stays the only list of them (ADR-0009).
+const SYMBOL_ALIASES: Record<string, string> = {
+  '/': '÷',
+  '*': '×',
+  x: '×',
+  '-': '−',
+  r: '√',
+}
+
+export function actionForKey(key: string, operations: Operation[]): CalculatorAction | null {
+  if (/^[0-9]$/.test(key)) return { type: 'digitPressed', digit: key as Digit }
+  if (key === '.' || key === ',') return { type: 'decimalPressed' }
+  if (key === 'Enter' || key === '=') return { type: 'submitted' }
+  if (key === 'Escape' || key === 'c' || key === 'C') return { type: 'cleared' }
+
+  const symbol = SYMBOL_ALIASES[key] ?? key
+  const operation = operations.find((candidate) => candidate.symbol === symbol)
+
+  return operation === undefined ? null : { type: 'operationSelected', operation }
+}
+
 export function displayValue(state: CalculatorState): string {
   return state.right ?? state.left ?? ZERO
 }

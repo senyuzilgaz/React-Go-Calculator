@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { Operation } from '../../api/types'
 import { operationById } from '../../test/operations'
+import { CATALOG } from '../../test/catalog'
 import {
+  actionForKey,
   calculatorReducer,
   canSubmit,
   displayValue,
@@ -283,6 +285,68 @@ describe('a returned failure', () => {
     const state = run([...keys('1'), select(ADD), ...keys('2'), submit, clear])
 
     expect(calculatorReducer(state, failed('Cannot divide by zero.'))).toBe(state)
+  })
+})
+
+describe('the action a keystroke maps to', () => {
+  const OPERATIONS = CATALOG.operations
+  const keyed = (key: string) => actionForKey(key, OPERATIONS)
+
+  it('maps every digit', () => {
+    for (const digit of ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+      expect(keyed(digit)).toEqual({ type: 'digitPressed', digit })
+    }
+  })
+
+  it('maps both decimal separators', () => {
+    expect(keyed('.')).toEqual({ type: 'decimalPressed' })
+    expect(keyed(',')).toEqual({ type: 'decimalPressed' })
+  })
+
+  it('maps enter and equals to submitting', () => {
+    expect(keyed('Enter')).toEqual({ type: 'submitted' })
+    expect(keyed('=')).toEqual({ type: 'submitted' })
+  })
+
+  it('maps escape and c to clearing', () => {
+    expect(keyed('Escape')).toEqual({ type: 'cleared' })
+    expect(keyed('c')).toEqual({ type: 'cleared' })
+    expect(keyed('C')).toEqual({ type: 'cleared' })
+  })
+
+  it('maps a typed operator onto the operation whose symbol it stands for', () => {
+    expect(keyed('+')).toEqual({ type: 'operationSelected', operation: ADD })
+    expect(keyed('-')).toEqual({ type: 'operationSelected', operation: operationById('subtract') })
+    expect(keyed('*')).toEqual({ type: 'operationSelected', operation: operationById('multiply') })
+    expect(keyed('x')).toEqual({ type: 'operationSelected', operation: operationById('multiply') })
+    expect(keyed('/')).toEqual({ type: 'operationSelected', operation: DIVIDE })
+    expect(keyed('^')).toEqual({ type: 'operationSelected', operation: operationById('power') })
+    expect(keyed('r')).toEqual({ type: 'operationSelected', operation: SQRT })
+    expect(keyed('%')).toEqual({ type: 'operationSelected', operation: operationById('percent') })
+  })
+
+  it('maps a catalog symbol that was typed directly', () => {
+    expect(keyed('÷')).toEqual({ type: 'operationSelected', operation: DIVIDE })
+  })
+
+  it('maps an operation this frontend has never heard of, by its symbol', () => {
+    const modulo = { ...ADD, id: 'modulo', name: 'Modulo', symbol: '#' }
+
+    expect(actionForKey('#', [...OPERATIONS, modulo])).toEqual({
+      type: 'operationSelected',
+      operation: modulo,
+    })
+  })
+
+  it('maps nothing for a key the calculator has no use for', () => {
+    for (const key of ['a', 'Shift', 'F1', 'ArrowLeft', 'Backspace']) {
+      expect(keyed(key)).toBeNull()
+    }
+  })
+
+  it('maps no operator while the catalog is empty', () => {
+    expect(actionForKey('/', [])).toBeNull()
+    expect(actionForKey('7', [])).toEqual({ type: 'digitPressed', digit: '7' })
   })
 })
 

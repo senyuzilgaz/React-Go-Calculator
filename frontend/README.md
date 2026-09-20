@@ -29,6 +29,15 @@ calls the origin it was served from. `vite.config.ts` proxies those paths to
 `http://localhost:8080` in development and in `vite preview`, which is why CORS never
 arises locally (ADR-0012). In production nginx serves `dist/` and proxies the same paths.
 
+## Keyboard
+
+Digits, `.` and `,`, `=` and `Enter`, `Escape` and `c` all work, as do the operator keys — `+`
+`-` `*` `/` `^` `%`, `x` for multiply and `r` for square root. Operators are resolved against
+the catalog by symbol, so typing an operation's own symbol works too and a new single-character
+symbol needs no change here (ADR-0023). `Enter` and `Space` are left to whichever key has
+focus, since that is how a button is activated; `=` submits regardless. There is no backspace:
+the state machine has no action for it, so corrections go through `C`.
+
 ## Layout
 
 ```
@@ -40,6 +49,7 @@ src/features/calculator/
   reducer.ts                      the whole state machine; no React, no I/O, no arithmetic
   useCalculator.ts                holds the reducer and issues the one request it asks for
   useOperations.ts                the catalog fetch, with a retry
+  useKeyboard.ts                  window keydown, dispatched through the reducer's key map
   Display.tsx, Keypad.tsx         props in, buttons out
 src/App.tsx                       wiring: the only place an intent becomes an action
 src/test/                         MSW handlers, the catalog fixture, and Vitest setup
