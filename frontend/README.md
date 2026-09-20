@@ -32,9 +32,19 @@ arises locally (ADR-0012). In production nginx serves `dist/` and proxies the sa
 ## Layout
 
 ```
-src/api/types.ts     the contract's shapes, hand-written from api/openapi.yaml
-src/api/errors.ts    CalcError, the nine contract codes plus two client-side ones, and
-                     the message shown for each
-src/api/client.ts    getOperations and calculate; the only place fetch appears
-src/test/            MSW handlers, the catalog fixture, and Vitest setup
+src/api/types.ts                  the contract's shapes, hand-written from api/openapi.yaml
+src/api/errors.ts                 CalcError, the nine contract codes plus two client-side
+                                  ones, and the message shown for each
+src/api/client.ts                 getOperations and calculate; the only place fetch appears
+src/features/calculator/
+  reducer.ts                      the whole state machine; no React, no I/O, no arithmetic
+  useCalculator.ts                holds the reducer and issues the one request it asks for
+  useOperations.ts                the catalog fetch, with a retry
+  Display.tsx, Keypad.tsx         props in, buttons out
+src/App.tsx                       wiring: the only place an intent becomes an action
+src/test/                         MSW handlers, the catalog fixture, and Vitest setup
 ```
+
+Operation keys are rendered from `GET /api/v1/operations`. No operation is named anywhere in
+this codebase outside tests, so registering one in Go puts it on the keypad with no change
+here (ADR-0009).

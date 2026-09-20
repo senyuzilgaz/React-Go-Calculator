@@ -1,0 +1,161 @@
+:root {
+  --surface: #ffffff;
+  --sunken: #f1f3f5;
+  --border: #d0d7de;
+  --text: #1b1f23;
+  --muted: #6b7280;
+  --accent: #1f6feb;
+  --danger: #b42318;
+  --danger-surface: #fdecea;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #16191d;
+    --sunken: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #9198a1;
+    --accent: #4493f8;
+    --danger: #ff7b72;
+    --danger-surface: #3a1a17;
+  }
+}
+
+body {
+  background: var(--sunken);
+  color: var(--text);
+}
+
+.display {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.display__pending {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+  min-height: 1.25rem;
+  text-align: right;
+}
+
+.display__value {
+  display: block;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  overflow-x: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.display__value[aria-busy='true'] {
+  color: var(--muted);
+}
+
+.display__error {
+  color: var(--danger);
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+  text-align: right;
+}
+
+.keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.keypad__operations {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(3.25rem, 1fr));
+}
+
+.keypad__keys {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.keypad__status {
+  color: var(--muted);
+  font-size: 0.875rem;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.keypad__status--error {
+  align-items: center;
+  background: var(--danger-surface);
+  border-radius: 0.5rem;
+  color: var(--danger);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+}
+
+.keypad__status--error p {
+  margin: 0;
+}
+
+.keypad__retry {
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  white-space: nowrap;
+}
+
+.key {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1.125rem;
+  min-height: 44px;
+  padding: 0.75rem 0;
+}
+
+.key:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.key:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.key--operation {
+  font-size: 1.25rem;
+}
+
+.key--clear {
+  color: var(--danger);
+}
+
+.key--submit {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  grid-column: span 2;
+}
+
+@media (max-width: 480px) {
+  .app {
+    max-width: none;
+  }
+
+  .key {
+    font-size: 1.25rem;
+    min-height: 52px;
+  }
+}

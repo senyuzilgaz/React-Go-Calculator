@@ -1,52 +1,36 @@
-import { useEffect, useState } from 'react'
-
-import { getOperations } from './api/client'
-import { isAbortError, uiMessage } from './api/errors'
-import type { Operation } from './api/types'
+import { Display } from './features/calculator/Display'
+import { Keypad } from './features/calculator/Keypad'
+import { useCalculator } from './features/calculator/useCalculator'
+import { useOperations } from './features/calculator/useOperations'
 import './App.css'
+import './features/calculator/calculator.css'
 
-// Operation keys come from the catalog, so a new operation needs no change here (ADR-0009).
-// The keys stay inert until the reducer that drives them exists.
 export default function App() {
-  const [operations, setOperations] = useState<Operation[]>([])
-  const [failure, setFailure] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { dispatch, status, display, pending, canSubmit, error } = useCalculator()
+  const catalog = useOperations()
 
-  useEffect(() => {
-    const controller = new AbortController()
-
-    void (async () => {
-      try {
-        setOperations(await getOperations(controller.signal))
-      } catch (error) {
-        if (isAbortError(error)) return
-        setFailure(uiMessage(error))
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
-      }
-    })()
-
-    return () => controller.abort()
-  }, [])
+  const calculating = status === 'calculating'
 
   return (
     <main className="app">
-      <h1>Calculator</h1>
+      <h1 className="app__title">Calculator</h1>
 
-      {failure !== null && (
-        <p className="banner" role="alert">
-          {failure}
-        </p>
-      )}
+      <Display value={display} pending={pending} error={error} busy={calculating} />
 
-      <section className="operations" aria-busy={loading} aria-label="Operations">
-        {loading && <p className="status">Loading operations…</p>}
-        {operations.map((operation) => (
-          <button key={operation.id} type="button" aria-label={operation.name} disabled>
-            {operation.symbol}
-          </button>
-        ))}
-      </section>
+      <Keypad
+        operations={catalog.operations}
+        loading={catalog.loading}
+        error={catalog.error}
+        onRetry={catalog.reload}
+        disabled={calculating}
+        canSubmit={canSubmit}
+        onDigit={(digit) => dispatch({ type: 'digitPressed', digit })}
+        onDecimal={() => dispatch({ type: 'decimalPressed' })}
+        onSign={() => dispatch({ type: 'signToggled' })}
+        onClear={() => dispatch({ type: 'cleared' })}
+        onOperation={(operation) => dispatch({ type: 'operationSelected', operation })}
+        onSubmit={() => dispatch({ type: 'submitted' })}
+      />
     </main>
   )
 }

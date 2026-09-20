@@ -1,37 +1,160 @@
-import { http } from 'msw'
-import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { delay, http, HttpResponse } from 'msw'
+import { describe, expect, it } from 'vitest'
 
 import App from './App'
-import { CalcError, uiMessage } from './api/errors'
 import { CATALOG } from './test/catalog'
 import { errorBody } from './test/handlers'
 import { server } from './test/server'
 
+const catalogLoaded = () => screen.findByRole('button', { name: 'Addition' })
+
 describe('App', () => {
-  it('renders one key per operation the catalog publishes', async () => {
+  it('renders a key for every operation the catalog publishes', async () => {
     render(<App />)
+    await catalogLoaded()
 
-    const keys = await screen.findAllByRole('button')
+    const operations = screen.getByRole('region', { name: 'Operations' })
 
-    expect(keys.map((key) => key.textContent)).toEqual(
+    expect([...operations.querySelectorAll('button')].map((key) => key.textContent)).toEqual(
       CATALOG.operations.map((operation) => operation.symbol),
     )
-    expect(screen.getByRole('button', { name: 'Division' })).toBeInTheDocument()
   })
 
-  it('surfaces an unreachable catalog as an error banner', async () => {
+  it('renders the digits before the catalog answers', async () => {
+    server.use(
+      http.get('/api/v1/operations', async () => {
+        await delay(20)
+        return HttpResponse.json(CATALOG)
+      }),
+    )
+
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: '7' })).toBeEnabled()
+    expect(screen.getByText('Loading operations…')).toBeInTheDocument()
+
+    await catalogLoaded()
+  })
+
+  it('issues one request for a completed computation and renders what it returns', async () => {
+    let requests = 0
+    server.use(
+      http.post('/api/v1/operations/add', async ({ request }) => {
+        requests += 1
+        expect(await request.json()).toEqual({ operands: [1, 2] })
+        return HttpResponse.json({ operation: 'add', operands: [1, 2], result: '3' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('button', { name: 'Addition' }))
+    await user.click(screen.getByRole('button', { name: '2' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('3')
+    expect(requests).toBe(1)
+  })
+
+  it('renders and calls an operation this frontend has never heard of', async () => {
+    const modulo = {
+      id: 'modulo',
+      name: 'Modulo',
+      symbol: 'mod',
+      arity: 2,
+      parameters: [
+        { name: 'dividend', description: 'The value divided.' },
+        { name: 'divisor', description: 'The value divided by.' },
+      ],
+      endpoint: '/api/v1/operations/modulo',
+    }
+    let path: string | undefined
+    let body: unknown
     server.use(
       http.get('/api/v1/operations', () =>
-        errorBody(500, 'INTERNAL_ERROR', 'An unexpected error occurred'),
+        HttpResponse.json({ operations: [...CATALOG.operations, modulo] }),
+      ),
+      http.post('/api/v1/operations/modulo', async ({ request }) => {
+        path = new URL(request.url).pathname
+        body = await request.json()
+        return HttpResponse.json({ operation: 'modulo', operands: [7, 3], result: '1' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '7' }))
+    await user.click(screen.getByRole('button', { name: 'Modulo' }))
+    await user.click(screen.getByRole('button', { name: '3' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('1')
+    expect(path).toBe('/api/v1/operations/modulo')
+    expect(body).toEqual({ operands: [7, 3] })
+  })
+
+  it('cannot submit an incomplete computation', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('button', { name: 'Addition' }))
+
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '2' }))
+
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeEnabled()
+  })
+
+  it('shows a rejected computation in the message its code maps to', async () => {
+    server.use(
+      http.post('/api/v1/operations/divide', () =>
+        errorBody(422, 'DIVISION_BY_ZERO', 'Cannot divide by zero'),
       ),
     )
 
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('button', { name: 'Division' }))
+    await user.click(screen.getByRole('button', { name: '0' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot divide by zero.')
+  })
+
+  it('offers a retry when the catalog cannot be reached', async () => {
+    server.use(
+      http.get(
+        '/api/v1/operations',
+        () => errorBody(500, 'INTERNAL_ERROR', 'An unexpected error occurred'),
+        { once: true },
+      ),
+    )
+
+    const user = userEvent.setup()
     render(<App />)
 
-    await expect(screen.findByRole('alert')).resolves.toHaveTextContent(
-      uiMessage(new CalcError('INTERNAL_ERROR', '')),
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The calculator service had a problem.',
     )
-    expect(screen.queryAllByRole('button')).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await catalogLoaded()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

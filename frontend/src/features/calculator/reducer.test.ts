@@ -7,6 +7,7 @@ import {
   canSubmit,
   displayValue,
   initialState,
+  pendingExpression,
   type CalculatorAction,
   type CalculatorState,
   type Digit,
@@ -126,6 +127,31 @@ describe('choosing an operation', () => {
 
   it('is not submittable without an operation', () => {
     expect(canSubmit(run(keys('12')))).toBe(false)
+  })
+})
+
+describe('the pending expression', () => {
+  it('is absent until an operation is chosen', () => {
+    expect(pendingExpression(initialState)).toBeNull()
+    expect(pendingExpression(run(keys('12')))).toBeNull()
+  })
+
+  it('follows the operand for a binary operation', () => {
+    expect(pendingExpression(run([...keys('12'), select(DIVIDE)]))).toBe('12 ÷')
+  })
+
+  it('stays visible while the second operand is entered', () => {
+    expect(pendingExpression(run([...keys('12'), select(DIVIDE), ...keys('4')]))).toBe('12 ÷')
+  })
+
+  it('precedes the operand for a unary operation', () => {
+    expect(pendingExpression(run([...keys('9'), select(SQRT)]))).toBe('√ 9')
+  })
+
+  it('is gone once a result returns', () => {
+    const state = run([...keys('1'), select(DIVIDE), ...keys('4'), submit, succeeded('0.25')])
+
+    expect(pendingExpression(state)).toBeNull()
   })
 })
 

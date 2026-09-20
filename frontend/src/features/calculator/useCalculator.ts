@@ -7,6 +7,7 @@ import {
   canSubmit,
   displayValue,
   initialState,
+  pendingExpression,
   type CalculatorAction,
   type CalculatorPhase,
   type CalculatorState,
@@ -17,6 +18,7 @@ export interface Calculator {
   dispatch: Dispatch<CalculatorAction>
   status: CalculatorPhase['kind']
   display: string
+  pending: string | null
   canSubmit: boolean
   error: string | null
 }
@@ -53,6 +55,7 @@ export function useCalculator(): Calculator {
     dispatch,
     status: phase.kind,
     display: displayValue(state),
+    pending: pendingExpression(state),
     canSubmit: canSubmit(state),
     error: state.error,
   }

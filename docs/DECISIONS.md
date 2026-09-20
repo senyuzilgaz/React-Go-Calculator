@@ -819,3 +819,57 @@ It exposes `state`, `dispatch`, and the derived `status`, `display`, `canSubmit`
   `canSubmit`, and the catalog.
 - `C` is the only escape from a slow request. There is no timeout; a request that never answers
   leaves the calculator in `calculating` until the user clears it.
+
+---
+
+## ADR-0021 — Keypad and display: props in, buttons out
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0020 put every calculator rule in the reducer. The components that render it
+still had to decide where intent becomes an action, what the keypad does while the catalog is
+loading, and what it offers when the catalog never arrives.
+
+**Decision.**
+
+- **`Display` and `Keypad` take props and render real `<button>` elements.** They hold no state,
+  no effects, and no rule; the only conditions in them are whether an optional message exists.
+  Every key is a button, so keyboard activation, focus order, and assistive technology work
+  without anything being reimplemented.
+- **`App` is the single place an intent becomes an action.** It passes `onDigit`, `onOperation`
+  and the rest, so the components never see `dispatch` or the action shapes. ADR-0020 rejected
+  intent callbacks as the *hook's* surface for hiding logic behind wrappers; here the wrappers
+  are the wiring itself, and they keep the reducer out of the component tree.
+- **Operation keys are the only thing gated on the catalog.** The digits, `.`, `±`, `C` and `=`
+  render immediately whatever the catalog does, as ADR-0009 requires. No operation is named in
+  application code, so a key appears for whatever the registry publishes — proven by a test that
+  serves an operation this codebase has never heard of and drives a computation through it.
+- **A catalog that fails shows its message and a `Try again` button.** ADR-0013 rules out
+  retry-with-backoff; a retry the user asks for is not that, and the alternative — a calculator
+  with a permanently empty operation row — is not a state worth shipping.
+- **`useOperations` owns the catalog, separately from `useCalculator`.** The catalog is data the
+  app loads once; the calculation is a state machine. Merging them would put an unrelated
+  loading state into the machine's surface.
+- **`C` stays enabled while a calculation is in flight**, as the escape hatch ADR-0020 names.
+  Every other key is disabled, and `=` is disabled whenever the computation is incomplete.
+- **The pending expression is a reducer selector, not a component's string.** `pendingExpression`
+  renders a unary symbol before its operand (`√ 9`) and a binary one after (`12 ÷`), matching
+  how each is read and the order each is pressed. It is derived state, so it is computed rather
+  than stored, and it is tested with the rest of the machine.
+
+**Alternatives considered.**
+- *Components reading the hook themselves.* Fewer props, but each component would then own a
+  piece of the wiring and could not be rendered in a test without the API behind it.
+- *A fixed keypad with the seven operations laid out by hand.* The familiar phone-calculator
+  grid, and it would make the catalog decorative — the exact outcome ADR-0009 set out to avoid.
+- *Reloading the page as the recovery from a failed catalog.* Fewer moving parts, but it
+  discards whatever the user had typed into a keypad that was working fine without it.
+
+**Consequences.**
+- The operation row is a wrapping grid rather than a fixed column, because the number of
+  operations is decided by the server.
+- `App` grows one prop per key. That is the cost of components that can be rendered and tested
+  with nothing behind them.
+- There is no global keyboard handling yet: each key responds to Enter and Space because it is a
+  button, but typing `1 + 2` on a physical keyboard does nothing. That is a hook over `keydown`
+  mapping to the same actions, and it is not built.
