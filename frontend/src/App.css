@@ -1,0 +1,23 @@
+.app {
+  margin: 0 auto;
+  max-width: 24rem;
+  padding: 1.5rem 1rem;
+}
+
+.banner {
+  background: #fdecea;
+  border-left: 4px solid #c0392b;
+  color: #7b241c;
+  padding: 0.75rem;
+}
+
+.operations {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr));
+}
+
+.operations button {
+  font-size: 1.25rem;
+  min-height: 44px;
+}

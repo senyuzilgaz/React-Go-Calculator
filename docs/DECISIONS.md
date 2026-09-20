@@ -669,3 +669,76 @@ how settings are read, what happens when one is wrong, or which knobs exist at a
 - `main` itself and the `ErrServerClosed` guard in the shutdown select are the only
   uncovered statements in the backend. The first ends in `os.Exit`; the second is the
   standard guard against reporting a clean stop as a failure.
+
+---
+
+## ADR-0019 — Frontend API layer: hand-written contract types, one error type, relative URLs
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** ADR-0005 settled that the TypeScript types are hand-written, ADR-0008 and ADR-0011
+named the stack. None of them says what the client module looks like: how a response is
+trusted, what a component catches, or how the browser addresses the API. Writing it settled
+those questions and a few more.
+
+**Decision.**
+
+- **`src/api/types.ts` mirrors `api/openapi.yaml` and nothing else.** Shapes the client never
+  exchanges (`Health`) are omitted rather than declared unused. `ERROR_CODES` is declared as a
+  value and `ErrorCode` derived from it, so the runtime check and the type cannot drift apart.
+- **`OperationId` is an open union.** The contract enumerates today's seven operations while
+  naming the catalog authoritative at runtime, and ADR-0009 requires a new operation to reach
+  the UI with no frontend change. A closed union would turn valid data into a type error.
+- **Everything leaving the API layer is a `CalcError`**, carrying the contract `code`, the HTTP
+  status, and the `X-Request-Id`. Components switch on `code` and never parse `message`
+  (ADR-0004); the request id is kept so a message a user reports can be found in the logs.
+- **Two codes exist that the contract does not define:** `NETWORK_ERROR`, where fetch produced
+  no response at all, and `MALFORMED_RESPONSE`. They live in `errors.ts` rather than
+  `types.ts`, which is the specification's mirror and stays that. A response whose `code` falls
+  outside the closed enum is `MALFORMED_RESPONSE`, not a relabelled `INTERNAL_ERROR`: the
+  taxonomy is versioned with the contract, so a code this client does not know is an answer it
+  cannot honour rather than a fault it can describe.
+- **Responses are verified, not trusted.** In particular `result` is rejected unless it is a
+  string. A server sending a JSON number would silently reintroduce exactly the representation
+  error the rounding policy exists to remove (ADR-0003), and the calculator would go on looking
+  like it worked.
+- **Cancellation is re-thrown untouched.** Both functions take an `AbortSignal`; an aborted
+  call rejects with its `AbortError`, which is not a failure and has nothing to show a user.
+- **Request URLs are built from the documented path template, never from the catalog's
+  `endpoint` field.** No request address should come out of a response body. The field remains
+  published as documentation of where each operation lives.
+- **The API is addressed by relative path**, with `vite.config.ts` proxying `/api` and
+  `/healthz` to `:8080` for both `dev` and `preview`. The browser only ever calls the origin it
+  was served from, so CORS is absent in development by construction rather than by
+  configuration (ADR-0012), and the same paths work behind nginx in production. There is no
+  configurable API base URL.
+- **MSW backs the frontend tests**, added to the stack ADR-0011 named. The client is exercised
+  through real `fetch` against real `Response` objects — statuses, headers, unparseable bodies,
+  aborts — none of which a stubbed `fetch` would exercise. The catalog fixture is extracted
+  from `docs/API_EXAMPLES.md` by script rather than retyped.
+
+**Alternatives considered.**
+- *zod or another runtime schema library.* Derives validators and types from one declaration.
+  Rejected for ADR-0005's reason: a dependency and a schema DSL to describe four shapes the
+  contract already states in thirty lines.
+- *Returning a result union (`{ ok: false, error }`) rather than throwing.* Honest about
+  failure being ordinary here, but every call site would branch twice and `await` would stop
+  being the success path. One error type with `try`/`catch` is what the React code around it
+  already reads as.
+- *Mapping an unrecognised server code onto `INTERNAL_ERROR`.* Keeps a UI working against a
+  newer server, at the cost of reporting a server fault when the real condition is a client too
+  old to understand the answer.
+- *A `VITE_API_BASE_URL` for a separately hosted API.* A configuration knob with no deployment
+  that needs it; ADR-0012 puts the API and the assets behind one origin.
+- *Stubbing `globalThis.fetch` instead of MSW.* One less dependency, but the assertions would
+  be about the stub rather than about a request.
+
+**Consequences.**
+- Adding a code to the contract fails the frontend build until the UI says what it means: the
+  code-to-message table is a total `Record`, so the compiler enforces the mapping.
+- Response validation is hand-written and grows a line whenever a schema does. It is confined
+  to `client.ts` and rejects into a single code.
+- A component that catches must ignore or re-throw `AbortError` itself; `isAbortError` exists
+  for that.
+- Serving the frontend from a different origin than the API needs a change here. That is
+  deliberate — no deployment in ADR-0012 does it.
