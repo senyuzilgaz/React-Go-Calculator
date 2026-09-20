@@ -141,15 +141,17 @@ export function calculatorReducer(
   }
 }
 
-// Typed characters that stand in for a catalog symbol no keyboard has a key for. It maps
-// characters to characters: no operation is named here, so an operation is still reachable by
-// typing its own symbol and the catalog stays the only list of them (ADR-0009).
+// Characters that stand in for a catalog symbol a keyboard may have no key for — `^` is a
+// dead key on Turkish and German layouts, so it needs a letter too. It maps characters to
+// characters: no operation is named here, so an operation is still reachable by typing its own
+// symbol and the catalog stays the only list of them (ADR-0009).
 const SYMBOL_ALIASES: Record<string, string> = {
   '/': '÷',
   '*': '×',
   x: '×',
   '-': '−',
   r: '√',
+  p: '^',
 }
 
 export function actionForKey(key: string, operations: Operation[]): CalculatorAction | null {
@@ -158,7 +160,7 @@ export function actionForKey(key: string, operations: Operation[]): CalculatorAc
   if (key === 'Enter' || key === '=') return { type: 'submitted' }
   if (key === 'Escape' || key === 'c' || key === 'C') return { type: 'cleared' }
 
-  const symbol = SYMBOL_ALIASES[key] ?? key
+  const symbol = SYMBOL_ALIASES[key.toLowerCase()] ?? key
   const operation = operations.find((candidate) => candidate.symbol === symbol)
 
   return operation === undefined ? null : { type: 'operationSelected', operation }

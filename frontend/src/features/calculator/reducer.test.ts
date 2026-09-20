@@ -432,6 +432,20 @@ describe('the action a keystroke maps to', () => {
     expect(keyed('%')).toEqual({ type: 'operationSelected', operation: operationById('percent') })
   })
 
+  it('maps a letter for an operator the layout cannot deliver as a character', () => {
+    expect(keyed('p')).toEqual({ type: 'operationSelected', operation: operationById('power') })
+  })
+
+  it('maps a letter alias whether or not shift was held', () => {
+    expect(keyed('P')).toEqual({ type: 'operationSelected', operation: operationById('power') })
+    expect(keyed('X')).toEqual({ type: 'operationSelected', operation: operationById('multiply') })
+    expect(keyed('R')).toEqual({ type: 'operationSelected', operation: SQRT })
+  })
+
+  it('maps nothing for a dead key, which carries no character', () => {
+    expect(keyed('Dead')).toBeNull()
+  })
+
   it('maps a catalog symbol that was typed directly', () => {
     expect(keyed('÷')).toEqual({ type: 'operationSelected', operation: DIVIDE })
   })

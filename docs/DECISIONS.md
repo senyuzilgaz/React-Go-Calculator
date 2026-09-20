@@ -1251,3 +1251,42 @@ was wrong:
   `SIGKILL`), so `--restart on-failure` sees a failure.
 - The nginx image's `STOPSIGNAL` convention is overridden, which is worth knowing when reading
   the base image's own documentation.
+
+## ADR-0028 — Letter aliases for operators a keyboard layout cannot type
+
+**Status:** Accepted · 2026-09-20
+
+**Context.** `^` did nothing on the reporter's machine, which runs the Turkish-QWERTY-PC
+layout. There `^` is Shift+3 and a **dead key**: macOS holds it back to compose `â`, `î`, `û`,
+and the browser fires `keydown` with `key === "Dead"`. No `^` character ever reaches the page,
+so ADR-0023's symbol lookup has nothing to match. German (`^` on Backquote) and several other
+layouts behave the same way. It is not a Mac-specific fault and not a bug in the mapping: the
+character is genuinely never delivered.
+
+Nothing in the event identifies *which* dead key was pressed — only `code`, which is physical
+and therefore layout-specific in the opposite direction.
+
+**Decision.** The alias map gains `p` → `^`, and alias lookup lowercases the key so `P`, `X`
+and `R` work like `p`, `x` and `r`. This is the mechanism ADR-0023 already uses for `√`, whose
+symbol no keyboard has at all; a dead key is the same problem arriving a different way. Aliases
+stay character-to-character, so no operation is named in frontend code and the catalog remains
+the only list of operations. A dead key still maps to nothing, now with a test that says so and
+why.
+
+**Alternatives considered.**
+- *Falling back to `event.code` when `key` is `"Dead"`.* Would need a table per layout
+  (`Digit3` on Turkish, `Backquote` on German, `Digit6` unshifted-different on US) — the
+  layout dependence the `key`-based mapping exists to avoid.
+- *Requiring the user to press the dead key twice.* That is how the literal character is typed
+  in a text field, but composition state lives in the input method and nothing guarantees a
+  plain `^` keydown outside an editable element.
+- *Switching the catalog's power symbol to something typeable.* The symbol is the contract's
+  (`api/openapi.yaml`) and is what the button shows; changing presentation to work around one
+  keyboard is the wrong direction.
+
+**Consequences.**
+- `p` joins `c` as a letter the calculator owns: an operation could not later take `p` as its
+  symbol without colliding, the caveat ADR-0023 already recorded.
+- Letters are now case-insensitive, so Shift does not matter for `x`, `r` or `p`. Catalog
+  symbols are still matched exactly, so an uppercase symbol would still be typeable as itself.
+- Discoverability rests on the README: the keypad buttons do not advertise their keys.

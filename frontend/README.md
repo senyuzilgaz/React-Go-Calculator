@@ -32,9 +32,12 @@ arises locally (ADR-0012). In production nginx serves `dist/` and proxies the sa
 ## Keyboard
 
 Digits, `.` and `,`, `=` and `Enter`, `Escape` and `c` all work, as do the operator keys — `+`
-`-` `*` `/` `^` `%`, `x` for multiply and `r` for square root. Operators are resolved against
-the catalog by symbol, so typing an operation's own symbol works too and a new single-character
-symbol needs no change here (ADR-0023). `Enter` and `Space` are left to whichever key has
+`-` `*` `/` `^` `%`, plus the letters `x` for multiply, `r` for square root and `p` for power.
+The letters are the way in on layouts that cannot deliver the symbol: `^` is a dead key on
+Turkish and German keyboards, so pressing it composes an accent and the page never sees a
+character (ADR-0028). Operators are resolved against the catalog by symbol, so typing an
+operation's own symbol works too and a new single-character symbol needs no change here
+(ADR-0023). `Enter` and `Space` are left to whichever key has
 focus, since that is how a button is activated; `=` submits regardless. There is no backspace:
 the state machine has no action for it, so corrections go through `C`.
 
