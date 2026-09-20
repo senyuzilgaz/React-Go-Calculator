@@ -1043,7 +1043,7 @@ value in place, so `√` then `±` negates the operand shown instead of discardi
 
 ## ADR-0025 — A rejected computation is not submittable until the user answers it
 
-**Status:** Accepted · 2026-09-20
+**Status:** Superseded by ADR-0026 · 2026-09-20
 
 **Context.** ADR-0020 stated that a failure "clears only the operand the user can retype — the
 second one — and keeps the left operand and the operation. `=` is disabled until a new operand
@@ -1135,3 +1135,74 @@ Go builds a static binary, and `nginx:alpine` is the runtime carrying both artif
 - Signal delivery is up to one second behind the poll interval, which shutdown timeouts absorb.
 - There is still no `docker-compose.yml` or `Makefile`. ADR-0012 named both; neither has a
   consumer while there is one image and one command.
+
+## ADR-0026 — A unary operation is applied when it is pressed
+
+**Status:** Accepted · 2026-09-20
+
+**Revises** ADR-0009 (one `=` is one call), ADR-0020 (one rule for every operation key, and the
+shape of the calculating phase). **Supersedes** ADR-0025. ADR-0024's `carriedEntry` stands.
+
+**Context.** `√2 + √2` displayed `1.41421356237`. ADR-0024 had already corrected this sequence
+once, from `sqrt(22)` to `sqrt(2)`, by making a carried entry restart rather than extend — but
+it corrected the operand and left the eviction in place. Both defects had the same source:
+`√` was a **deferred** operation. It sat in `state.operation` waiting for `=`, so pressing it
+while `+` was already there overwrote `+` and its left operand, and `operationSelected` then
+re-anchored `left` to whatever was on display. Two `sqrt` requests went out and `add` was never
+called. ADR-0024 recorded the silent drop as an accepted consequence, with the pending
+expression re-rendering from `2 +` to `√ 2` as the only signal. That signal does not work: the
+sequence was reported again, as a wrong answer rather than as a lost keystroke.
+
+Every physical calculator applies a unary operation to the displayed value immediately. Nothing
+in this design required deferring it; it fell out of ADR-0020's single rule for operation keys.
+
+**Decision.** A unary operation is applied on the keystroke. `operationSelected` with
+`arity === 1` issues its request at once against the displayed value and never writes to
+`state.operation`, so the operation slot holds only binary operations and a pending `+` is never
+displaced. The phase carries what the response settles:
+
+`{ kind: 'calculating'; request: PendingCalculation; settles: 'entry' | 'computation' }`
+
+- **`entry`** — the returned string replaces the operand being edited, in whichever slot a
+  keystroke would have edited, and the operation waiting for that operand stays as it was.
+- **`computation`** — unchanged from ADR-0020: the result becomes `left`, the operation is
+  cleared, the phase becomes `result`.
+
+A failure settling an `entry` clears nothing. The operand the user typed is still a valid
+operand for the operation still waiting for it, which rejected nothing — only the unary applied
+to it did. This is why ADR-0025 goes: it blocked `=` while any failure was unanswered, which
+under this entry would also block `1 + -4` after `√(-4)` was refused inside it. Its rule is now
+carried by the shape instead — a unary operation cannot be the thing `=` submits, so the only
+failure `=` can repeat is a binary one, and that already clears `right`.
+
+`√2 + √2` is three requests — `sqrt`, `sqrt`, `add` — and `2.82842712475`. No arithmetic moved
+into the client: each is a call, and the frontend still only renders the strings it is handed.
+
+**Alternatives considered.**
+- *Refusing the keystroke instead of discarding the operation.* Ignoring `√` while a binary
+  operation holds an operand, or saying so, would end the silent wrong answer. But `√2 + √2`
+  would still be uncomputable — the user would learn that sooner rather than believe a wrong
+  number, which is better and still not right.
+- *Evaluating the pending computation when a second operation key is pressed*, the physical
+  calculator's chaining. It answers a different question: it would compute `sqrt(1.414 + 2)`,
+  not the `sqrt(2)` the user asked for, and chaining stays out of scope (ADR-0013).
+- *Keeping the single rule for every operation key.* ADR-0020 rejected arity-dependent keys
+  because the keys would behave differently depending on arity. They do now, and they must: the
+  uniform rule is precisely what produced the wrong answer. Elegance lost to correctness.
+- *A separate `applying` phase rather than a settlement on `calculating`.* Two phases that issue
+  a request and differ only in where the answer lands, with the hook's effect having to match
+  both.
+
+**Consequences.**
+- ADR-0009's "each `=` issues exactly one API call" becomes "each unary keystroke and each `=`
+  issues exactly one". One keystroke is still at most one request, which is what the rule was
+  protecting.
+- `=` after a unary operation does nothing when no binary operation is pending: the computation
+  is already done. That matches the hardware and needed no special case.
+- `1 + √` applies `√` to the `1` still on display, per the same rule. It is the hardware's
+  behaviour and is unlikely to be what anyone wanted, but refusing it would be a second rule.
+- The hook is untouched. The settlement travels in the phase the reducer already owns, so
+  `useCalculator` still just issues `phase.request` and dispatches the outcome back.
+- ADR-0024's eight tests for an operand carried into a unary operation are gone. The defect they
+  guarded cannot be expressed any more: there is no interval during which a unary operation
+  holds an operand.

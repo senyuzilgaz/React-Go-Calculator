@@ -7,9 +7,13 @@ export interface PendingCalculation {
   operands: number[]
 }
 
+// What the returned string settles: an `entry` replaces the operand being edited and leaves the
+// operation waiting for it standing, a `computation` completes the operation itself (ADR-0026).
+export type Settlement = 'entry' | 'computation'
+
 export type CalculatorPhase =
   | { kind: 'entering' }
-  | { kind: 'calculating'; request: PendingCalculation }
+  | { kind: 'calculating'; request: PendingCalculation; settles: Settlement }
   | { kind: 'result' }
 
 export interface CalculatorState {
@@ -67,6 +71,24 @@ export function calculatorReducer(
     case 'operationSelected': {
       if (state.phase.kind === 'calculating') return state
 
+      // A unary operation applies to the displayed value the moment it is pressed, so it never
+      // occupies the operation slot. Deferring it there until `=` is what made `√2 + √2` evict
+      // the pending `+` and compute `sqrt(2)` (ADR-0026).
+      if (action.operation.arity === 1) {
+        const operand = operandOf(displayValue(state))
+        if (operand === null) return state
+
+        return {
+          ...state,
+          phase: {
+            kind: 'calculating',
+            request: { operation: action.operation.id, operands: [operand] },
+            settles: 'entry',
+          },
+          error: null,
+        }
+      }
+
       return {
         ...state,
         left: displayValue(state),
@@ -82,11 +104,17 @@ export function calculatorReducer(
       const request = pendingRequest(state)
       if (request === null) return state
 
-      return { ...state, phase: { kind: 'calculating', request }, error: null }
+      return {
+        ...state,
+        phase: { kind: 'calculating', request, settles: 'computation' },
+        error: null,
+      }
     }
 
     case 'calculationSucceeded': {
       if (state.phase.kind !== 'calculating') return state
+
+      if (state.phase.settles === 'entry') return writeEntry(state, action.result)
 
       return {
         ...state,
@@ -101,6 +129,12 @@ export function calculatorReducer(
 
     case 'calculationFailed': {
       if (state.phase.kind !== 'calculating') return state
+
+      // A rejected entry leaves the operand that was typed alone: it is still a valid operand
+      // for the operation still waiting for it, which rejected nothing.
+      if (state.phase.settles === 'entry') {
+        return { ...state, phase: ENTERING, error: action.message }
+      }
 
       return { ...state, right: null, phase: ENTERING, error: action.message }
     }
@@ -134,48 +168,43 @@ export function displayValue(state: CalculatorState): string {
   return state.right ?? state.left ?? ZERO
 }
 
-// The operation is shown with its operand in the position the symbol is read in: a unary
-// symbol precedes its operand, a binary one follows the operand it was pressed after.
+// The symbol follows the operand it was pressed after, which is how a binary operation is read.
+// Only a binary one is ever pending: a unary operation is applied and gone (ADR-0026).
 export function pendingExpression(state: CalculatorState): string | null {
   const { operation } = state
   if (operation === null) return null
 
-  const left = state.left ?? ZERO
-
-  return operation.arity === 1 ? `${operation.symbol} ${left}` : `${left} ${operation.symbol}`
+  return `${state.left ?? ZERO} ${operation.symbol}`
 }
 
 export function canSubmit(state: CalculatorState): boolean {
   return pendingRequest(state) !== null
 }
 
-// Also the submit guard: a computation that cannot be described as a request is not one the
-// UI offers. Number() parses the literal that was typed; every arithmetic decision, rounding
-// included, stays with the server (ADR-0003, ADR-0009).
+// Also the submit guard: a computation that cannot be described as a request is not one the UI
+// offers. Only a binary operation reaches here, so `=` always needs both operands, and a
+// failure that cleared `right` cannot be resent unchanged (ADR-0026 supersedes ADR-0025).
 function pendingRequest(state: CalculatorState): PendingCalculation | null {
   if (state.phase.kind !== 'entering') return null
-
-  // An unanswered failure still describes the computation the server just rejected. Every key
-  // that changes that computation clears the message, so this is what keeps a unary operand —
-  // the one on display, which no failure can clear — from being resent unchanged (ADR-0025).
-  if (state.error !== null) return null
 
   const { operation } = state
   if (operation === null) return null
 
-  const entries = operation.arity === 1 ? [state.left] : [state.left, state.right]
-  const operands: number[] = []
+  const left = operandOf(state.left)
+  const right = operandOf(state.right)
+  if (left === null || right === null) return null
 
-  for (const entry of entries) {
-    if (entry === null) return null
+  return { operation: operation.id, operands: [left, right] }
+}
 
-    const operand = Number(entry)
-    if (!Number.isFinite(operand)) return null
+// Number() parses the literal that was typed; every arithmetic decision, rounding included,
+// stays with the server (ADR-0003, ADR-0009).
+function operandOf(entry: string | null): number | null {
+  if (entry === null) return null
 
-    operands.push(operand)
-  }
+  const operand = Number(entry)
 
-  return { operation: operation.id, operands }
+  return Number.isFinite(operand) ? operand : null
 }
 
 function editEntry(
@@ -185,7 +214,7 @@ function editEntry(
 ): CalculatorState {
   if (state.phase.kind === 'calculating') return state
 
-  const slot = state.operation?.arity === 2 ? 'right' : 'left'
+  const slot = activeSlot(state)
   const current = slot === 'right' ? state.right : state.left
   const restarting = state.carriedEntry && onCarried === 'restart'
 
@@ -195,6 +224,21 @@ function editEntry(
   const next: CalculatorState = { ...state, phase: ENTERING, error: null, carriedEntry: false }
   if (slot === 'right') next.right = edited
   else next.left = edited
+
+  return next
+}
+
+// The slot a keystroke edits: a binary operation is waiting for its second operand, anything
+// else is still building the first.
+function activeSlot(state: CalculatorState): 'left' | 'right' {
+  return state.operation?.arity === 2 ? 'right' : 'left'
+}
+
+// A returned entry was placed by the calculator, so the next digit restarts it (ADR-0024).
+function writeEntry(state: CalculatorState, entry: string): CalculatorState {
+  const next: CalculatorState = { ...state, phase: ENTERING, error: null, carriedEntry: true }
+  if (activeSlot(state) === 'right') next.right = entry
+  else next.left = entry
 
   return next
 }

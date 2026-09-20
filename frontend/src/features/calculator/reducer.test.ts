@@ -123,8 +123,11 @@ describe('choosing an operation', () => {
     expect(canSubmit(run([...keys('12'), select(DIVIDE), ...keys('4')]))).toBe(true)
   })
 
-  it('is submittable at once for a unary operation', () => {
-    expect(canSubmit(run([...keys('9'), select(SQRT)]))).toBe(true)
+  it('is never a unary operation, which is applied when it is pressed (ADR-0026)', () => {
+    const state = run([...keys('9'), select(SQRT), succeeded('3')])
+
+    expect(state.operation).toBeNull()
+    expect(canSubmit(state)).toBe(false)
   })
 
   it('is not submittable without an operation', () => {
@@ -132,51 +135,78 @@ describe('choosing an operation', () => {
   })
 })
 
-describe('an operand carried into a unary operation', () => {
-  const calculating = (request: { operation: string; operands: number[] }) => ({
+describe('a unary operation applied on the keystroke (ADR-0026)', () => {
+  const rooting = (operands: number[]) => ({
     kind: 'calculating',
-    request,
+    request: { operation: 'sqrt', operands },
+    settles: 'entry',
   })
 
-  it('is replaced by the digits typed after the operation', () => {
-    const state = run([...keys('5'), select(SQRT), ...keys('3')])
+  it('computes the displayed value the moment it is pressed', () => {
+    expect(run([...keys('9'), select(SQRT)]).phase).toEqual(rooting([9]))
+  })
+
+  it('takes the zero on display when nothing was entered', () => {
+    expect(run([select(SQRT)]).phase).toEqual(rooting([0]))
+  })
+
+  it('never becomes the operation that = would submit', () => {
+    const state = run([...keys('9'), select(SQRT)])
+
+    expect(state.operation).toBeNull()
+    expect(pendingExpression(state)).toBeNull()
+  })
+
+  it('replaces the entry it was computed from', () => {
+    const state = run([...keys('9'), select(SQRT), succeeded('3')])
 
     expect(state.left).toBe('3')
     expect(displayValue(state)).toBe('3')
+    expect(state.phase).toEqual({ kind: 'entering' })
   })
 
-  it('keeps collecting the digits of that new entry', () => {
-    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('12')]))).toBe('12')
+  it('leaves a binary operation waiting for its second operand standing', () => {
+    const state = run([...keys('2'), select(ADD), ...keys('9'), select(SQRT), succeeded('3')])
+
+    expect(state.left).toBe('2')
+    expect(state.right).toBe('3')
+    expect(state.operation).toBe(ADD)
+    expect(pendingExpression(state)).toBe('2 +')
+    expect(canSubmit(state)).toBe(true)
   })
 
-  it('is replaced even by a digit it already reads as', () => {
-    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('55')]))).toBe('55')
-  })
-
-  it('is replaced by a decimal point starting a new entry', () => {
-    expect(displayValue(run([...keys('5'), select(SQRT), ...keys('.5')]))).toBe('0.5')
-  })
-
-  it('is computed on when the operation is submitted untouched', () => {
-    expect(run([...keys('12'), select(SQRT), submit]).phase).toEqual(
-      calculating({ operation: 'sqrt', operands: [12] }),
+  it('computes 2 root + 2 root as two roots and a sum, not as one root', () => {
+    const rooted = run([...keys('2'), select(SQRT), succeeded('1.41421356237')])
+    const summed = run(
+      [select(ADD), ...keys('2'), select(SQRT), succeeded('1.41421356237'), submit],
+      rooted,
     )
+
+    expect(summed.phase).toEqual({
+      kind: 'calculating',
+      request: { operation: 'add', operands: [1.41421356237, 1.41421356237] },
+      settles: 'computation',
+    })
   })
 
-  it('is computed on with its sign toggled rather than replaced', () => {
-    expect(displayValue(run([...keys('5'), select(SQRT), sign]))).toBe('-5')
+  it('applies to a returned result', () => {
+    const answered = run([...keys('9'), select(ADD), ...keys('7'), submit, succeeded('16')])
+
+    expect(calculatorReducer(answered, select(SQRT)).phase).toEqual(rooting([16]))
   })
 
-  it('never joins the operand typed after it into one number', () => {
-    expect(run([...keys('5'), select(SQRT), ...keys('3'), submit]).phase).toEqual(
-      calculating({ operation: 'sqrt', operands: [3] }),
-    )
+  it('leaves what it returns to be restarted by the next digit', () => {
+    expect(displayValue(run([...keys('9'), select(SQRT), succeeded('3'), ...keys('5')]))).toBe('5')
   })
 
-  it('applies to the last operand entered, one operation at a time (ADR-0009)', () => {
-    const state = run([select(SQRT), ...keys('2'), select(ADD), select(SQRT), ...keys('2'), submit])
+  it('leaves what it returns to be negated in place', () => {
+    expect(displayValue(run([...keys('9'), select(SQRT), succeeded('3'), sign]))).toBe('-3')
+  })
 
-    expect(state.phase).toEqual(calculating({ operation: 'sqrt', operands: [2] }))
+  it('is inert while a calculation is in flight', () => {
+    const state = run([...keys('9'), select(SQRT)])
+
+    expect(calculatorReducer(state, select(SQRT))).toBe(state)
   })
 })
 
@@ -194,8 +224,8 @@ describe('the pending expression', () => {
     expect(pendingExpression(run([...keys('12'), select(DIVIDE), ...keys('4')]))).toBe('12 ÷')
   })
 
-  it('precedes the operand for a unary operation', () => {
-    expect(pendingExpression(run([...keys('9'), select(SQRT)]))).toBe('√ 9')
+  it('is absent for a unary operation, which is never pending', () => {
+    expect(pendingExpression(run([...keys('9'), select(SQRT), succeeded('3')]))).toBeNull()
   })
 
   it('is gone once a result returns', () => {
@@ -212,13 +242,7 @@ describe('submitting', () => {
     expect(inFlight().phase).toEqual({
       kind: 'calculating',
       request: { operation: 'divide', operands: [10, 4] },
-    })
-  })
-
-  it('requests a single operand for a unary operation', () => {
-    expect(run([...keys('9'), select(SQRT), submit]).phase).toEqual({
-      kind: 'calculating',
-      request: { operation: 'sqrt', operands: [9] },
+      settles: 'computation',
     })
   })
 
@@ -336,32 +360,37 @@ describe('a returned failure', () => {
   })
 
   const rejectedRoot = () =>
-    run([...keys('4'), sign, select(SQRT), submit, failed('Cannot take the square root…')])
+    run([...keys('4'), sign, select(SQRT), failed('Cannot take the square root…')])
 
-  it('keeps a unary operand on display, since there is no second one to clear', () => {
+  it('leaves the operand a rejected unary operation was computed from on display', () => {
     const state = rejectedRoot()
 
-    expect(state.left).toBe('-4')
-    expect(state.operation).toBe(SQRT)
+    expect(state.error).toBe('Cannot take the square root…')
     expect(displayValue(state)).toBe('-4')
+    expect(state.phase).toEqual({ kind: 'entering' })
   })
 
-  it('cannot be resent unchanged when the rejected operand is the one on display', () => {
-    expect(canSubmit(rejectedRoot())).toBe(false)
+  it('lets that operand be corrected in place and the operation pressed again', () => {
+    expect(run([sign, select(SQRT)], rejectedRoot()).phase).toEqual({
+      kind: 'calculating',
+      request: { operation: 'sqrt', operands: [4] },
+      settles: 'entry',
+    })
   })
 
-  it('is submittable again once a unary operand is corrected in place', () => {
-    const state = calculatorReducer(rejectedRoot(), sign)
+  it('clears nothing when a unary operation was rejected inside a pending one (ADR-0026)', () => {
+    const state = run([
+      ...keys('1'),
+      select(ADD),
+      ...keys('4'),
+      sign,
+      select(SQRT),
+      failed('Cannot take the square root…'),
+    ])
 
-    expect(displayValue(state)).toBe('4')
-    expect(canSubmit(state)).toBe(true)
-    expect(state.error).toBeNull()
-  })
-
-  it('is submittable again once a unary operand is retyped', () => {
-    const state = run(keys('9'), rejectedRoot())
-
-    expect(displayValue(state)).toBe('9')
+    expect(state.left).toBe('1')
+    expect(state.right).toBe('-4')
+    expect(state.operation).toBe(ADD)
     expect(canSubmit(state)).toBe(true)
   })
 })
@@ -435,6 +464,7 @@ describe('no client-side arithmetic (ADR-0009)', () => {
     expect(submitted.phase).toEqual({
       kind: 'calculating',
       request: { operation: 'add', operands: [0.1, 0.2] },
+      settles: 'computation',
     })
     expect(displayValue(submitted)).toBe('0.2')
 

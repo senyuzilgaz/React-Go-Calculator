@@ -277,12 +277,12 @@ describe('App', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('sends the operand typed after a unary key, not the one it replaced', async () => {
+  it('applies a unary key to the displayed value as soon as it is pressed', async () => {
     let body: unknown
     server.use(
       http.post('/api/v1/operations/sqrt', async ({ request }) => {
         body = await request.json()
-        return HttpResponse.json({ operation: 'sqrt', operands: [3], result: '1.73205080757' })
+        return HttpResponse.json({ operation: 'sqrt', operands: [9], result: '3' })
       }),
     )
 
@@ -290,12 +290,51 @@ describe('App', () => {
     render(<App />)
     await catalogLoaded()
 
-    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: '9' }))
     await user.click(screen.getByRole('button', { name: 'Square root' }))
-    await user.click(screen.getByRole('button', { name: '3' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('3')
+    expect(body).toEqual({ operands: [9] })
+  })
+
+  it('computes √2 + √2 as 2.82842712475, without dropping the addition (ADR-0026)', async () => {
+    const sent: unknown[] = []
+    server.use(
+      http.post('/api/v1/operations/sqrt', async ({ request }) => {
+        sent.push(await request.json())
+        return HttpResponse.json({ operation: 'sqrt', operands: [2], result: '1.41421356237' })
+      }),
+      http.post('/api/v1/operations/add', async ({ request }) => {
+        sent.push(await request.json())
+        return HttpResponse.json({
+          operation: 'add',
+          operands: [1.41421356237, 1.41421356237],
+          result: '2.82842712475',
+        })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '2' }))
+    await user.click(screen.getByRole('button', { name: 'Square root' }))
+    await screen.findByText('1.41421356237')
+
+    await user.click(screen.getByRole('button', { name: 'Addition' }))
+    await user.click(screen.getByRole('button', { name: '2' }))
+    await user.click(screen.getByRole('button', { name: 'Square root' }))
+
+    expect(screen.getByText('1.41421356237 +')).toBeInTheDocument()
+
     await user.click(screen.getByRole('button', { name: 'Equals' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('1.73205080757')
-    expect(body).toEqual({ operands: [3] })
+    expect(await screen.findByRole('status')).toHaveTextContent('2.82842712475')
+    expect(sent).toEqual([
+      { operands: [2] },
+      { operands: [2] },
+      { operands: [1.41421356237, 1.41421356237] },
+    ])
   })
 })
