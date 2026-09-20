@@ -5,8 +5,8 @@ import (
 	"sync"
 )
 
-// syncBuffer collects log output written from the server's goroutines while the test
-// reads it from its own.
+// syncBuffer collects log output written from the server's goroutines while the test reads
+// it from its own.
 type syncBuffer struct {
 	mutex  sync.Mutex
 	buffer bytes.Buffer

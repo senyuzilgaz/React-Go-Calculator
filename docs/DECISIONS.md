@@ -873,3 +873,82 @@ loading, and what it offers when the catalog never arrives.
 - There is no global keyboard handling yet: each key responds to Enter and Space because it is a
   button, but typing `1 + 2` on a physical keyboard does nothing. That is a hook over `keydown`
   mapping to the same actions, and it is not built.
+
+---
+
+## ADR-0022 — Review corrections: preflight detection, detached registry values, origin normalization
+
+**Status:** Accepted · 2026-09-20
+**Amends:** ADR-0017 (the `internal/transport/http/` path only; the rest of ADR-0017 remains
+in force and is not superseded)
+
+**Context.** A review of the Go backend found three defects, each in code whose own comment or
+test claimed the opposite property, plus one table that had outgrown what it was doing. All
+four are recorded here because each reverses something an earlier entry stated.
+
+**Decision.**
+
+- **The HTTP package is `internal/transport/httpapi`, package `httpapi`.** ADR-0017 named it
+  `internal/transport/http`, package `http`, on the grounds that a package's own name is not
+  bound in its file scope. That is true and it compiled, but every importer had to alias it
+  and every reader of the package had to disambiguate `http.Handler` from the package they
+  were inside. The `transport/` seam that ADR-0017 was actually defending is in the directory
+  path and is unaffected.
+
+- **Only a genuine preflight is answered as one.** The CORS middleware short-circuited *every*
+  `OPTIONS` request with `204`, before the router saw it. With `ALLOWED_ORIGIN` set,
+  `OPTIONS /api/v1/operations/add` answered `204` with no `Allow` header instead of the
+  contract's `405 METHOD_NOT_ALLOWED`, and `OPTIONS /metrics` answered `204` with an empty
+  body instead of the `404` envelope — so the API broke the ADR-0017 promise that every
+  response is JSON, and did so *only in production*, since the middleware is a no-op in
+  development. A request is now treated as a preflight only when it is `OPTIONS`, carries the
+  allowed `Origin`, **and** carries `Access-Control-Request-Method`. Everything else falls
+  through to the router and gets the same answer it gets with CORS disabled. The preflight
+  response headers (`Allow-Methods`, `Allow-Headers`, `Max-Age`) moved with it, so they are
+  no longer set on ordinary responses where they mean nothing.
+
+- **`calc.Catalog` and `calc.Lookup` return operations detached from the registry.** Both
+  returned a struct copy whose `Parameters` slice still aliased registry state, so
+  `Catalog()[0].Parameters[0].Name = x` corrupted the catalog for every later request in the
+  process. `Catalog`'s doc comment asserted the opposite, and its test only mutated the outer
+  slice, so the claim went unchecked. Copying is now one `clone` method used by both, and the
+  test mutates through `Parameters`.
+
+- **`ALLOWED_ORIGIN` is normalized, not merely validated.** `parseAllowedOrigin` exists
+  because the middleware compares the configured origin to the `Origin` header byte for byte,
+  and it rejected trailing slashes and paths for exactly that reason — then returned the raw
+  input. `HTTPS://Calculator.Example` passed every check and matched nothing, which is the
+  failure the function was written to prevent. It now returns `scheme://host` with the host
+  lowercased, and rejects userinfo.
+
+- **`classify` is a switch, not a table of closures.** The `domainFailures` table carried a
+  `message func(calc.Operation, int) string` per row that four of six rows ignored, and was
+  scanned linearly. A switch says the same thing in less space with nothing to hold in mind.
+  The `calc.ErrUnknownOperation` row is **dropped**: `handleExecute` resolves existence before
+  calling `calc`, so that row was unconstructable, and its message would have read
+  `Unknown operation '<an operation that exists>'`. Reaching `classify` with it now means
+  this package is broken, which is what `500 INTERNAL_ERROR` is for, and a test says so.
+  The `calc.ErrInvalidOperand` row stays for the reason ADR-0017 gave.
+
+**Alternatives considered.**
+- *Leaving `Catalog`'s doc comment and dropping the copy instead*, documenting the returned
+  value as read-only. Cheaper, and honest. Rejected because the registry is process-wide
+  state reachable from a request handler, and a convention is a weaker guarantee than a copy
+  that costs two words.
+- *Fixing the preflight check inside the router rather than the middleware.* Would need the
+  router to know about CORS, which is the coupling the middleware exists to avoid.
+- *Keeping `UNKNOWN_OPERATION` in `classify` as defence in depth*, as with
+  `ErrInvalidOperand`. Rejected: `ErrInvalidOperand` degrades to a correct `400` if the decode
+  path changes, whereas this row could only ever produce a wrong message, and the 404 it
+  duplicates is `handleExecute`'s to return.
+
+**Consequences.**
+- Each of the three defects now has a regression test that fails against the previous code:
+  `OPTIONS` asserted across all four CORS configurations, mutation through `Parameters` on
+  both `Catalog` and `Lookup`, and case normalization of `ALLOWED_ORIGIN`.
+- `api/openapi.yaml` and `docs/API_EXAMPLES.md` need no change. Every correction moves the
+  implementation *towards* the published contract rather than altering it.
+- Comment volume across the backend was cut in the same pass. The rule in CLAUDE.md is that
+  prose appears only where the code cannot carry the meaning; three of these four defects
+  were in code carrying a comment that asserted the property it did not have, which is the
+  argument for fewer comments rather than more.

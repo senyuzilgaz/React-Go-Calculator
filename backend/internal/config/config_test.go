@@ -56,8 +56,7 @@ func TestEnvironmentOverridesDefaults(t *testing.T) {
 	}
 }
 
-// The bind is on every interface: a container publishing the port would be unreachable if
-// the service bound loopback only.
+// A container publishing the port would be unreachable behind a loopback-only bind.
 func TestAddressBindsEveryInterface(t *testing.T) {
 	got, err := Load(environment(map[string]string{"PORT": "8080"}))
 	if err != nil {
@@ -89,8 +88,8 @@ func TestLogLevelIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-// A misconfigured value stops the service rather than being silently replaced by a
-// default, so a typo surfaces at deploy time instead of as mysterious behaviour later.
+// A misconfigured value stops the service rather than being silently defaulted, so a typo
+// surfaces at deploy time instead of as mysterious behaviour later.
 func TestInvalidValuesAreRejected(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -122,8 +121,7 @@ func TestInvalidValuesAreRejected(t *testing.T) {
 	}
 }
 
-// The middleware compares the configured origin to the Origin header exactly, so anything
-// that cannot match one is rejected at startup rather than at request time.
+// Anything that could never match an Origin header is rejected at startup.
 func TestAllowedOriginMustBeABareOrigin(t *testing.T) {
 	rejected := []string{
 		"*",
@@ -134,6 +132,7 @@ func TestAllowedOriginMustBeABareOrigin(t *testing.T) {
 		"https://",
 		"https://calculator.example?a=1",
 		"https://calculator.example#top",
+		"https://user:pass@calculator.example",
 	}
 
 	for _, value := range rejected {
@@ -179,5 +178,32 @@ func TestAllProblemsAreReportedTogether(t *testing.T) {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error does not mention %s:\n%v", name, err)
 		}
+	}
+}
+
+// The middleware compares ALLOWED_ORIGIN to the Origin header byte for byte and browsers
+// send it lowercased, so an origin that validates but never matches is the exact failure
+// this parsing exists to prevent (ADR-0022).
+func TestAllowedOriginIsNormalized(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{"https://calculator.example", "https://calculator.example"},
+		{"HTTPS://Calculator.Example", "https://calculator.example"},
+		{"https://Calculator.Example:8443", "https://calculator.example:8443"},
+		{"HTTP://LOCALHOST:5173", "http://localhost:5173"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := Load(environment(map[string]string{"ALLOWED_ORIGIN": tt.value}))
+			if err != nil {
+				t.Fatalf("Load returned %v", err)
+			}
+			if got.AllowedOrigin != tt.want {
+				t.Errorf("AllowedOrigin = %q, want %q", got.AllowedOrigin, tt.want)
+			}
+		})
 	}
 }

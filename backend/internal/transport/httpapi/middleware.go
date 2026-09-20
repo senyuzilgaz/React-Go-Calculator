@@ -1,4 +1,4 @@
-package http
+package httpapi
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 const requestIDHeader = "X-Request-Id"
 
 // maxRequestIDLength bounds an echoed correlation id. The value is attacker-controlled and
-// ends up in every log line for the request, so an unreasonable one is replaced rather than
+// reaches every log line for the request, so an unreasonable one is replaced rather than
 // carried.
 const maxRequestIDLength = 128
 
@@ -19,7 +19,7 @@ type contextKey int
 
 const requestIDContextKey contextKey = iota
 
-// RequestIDFrom returns the correlation id carried by a request, for handlers and logs.
+// RequestIDFrom returns the correlation id carried by a request.
 func RequestIDFrom(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDContextKey).(string)
 	return id
@@ -51,8 +51,8 @@ func acceptableRequestID(value string) string {
 	return value
 }
 
-// logRequests records one line per request. It reports through a defer so that a request
-// which panics is still logged, with the status the recovery middleware wrote.
+// logRequests records one line per request. It reports through a defer so a request that
+// panics is still logged, with the status the recovery middleware wrote.
 func logRequests(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +75,7 @@ func logRequests(logger *slog.Logger) func(http.Handler) http.Handler {
 }
 
 // recoverPanics turns an unexpected fault into the documented 500, carrying no internal
-// detail; the correlation id is what ties the response to the log entry that has it.
+// detail; the correlation id ties the response to the log entry that has it.
 func recoverPanics(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,19 +117,25 @@ func corsPolicy(allowedOrigin string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add("Vary", "Origin")
 
-			if r.Header.Get("Origin") == allowedOrigin {
-				w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+requestIDHeader)
-				w.Header().Set("Access-Control-Max-Age", "600")
-			}
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
+			if r.Header.Get("Origin") != allowedOrigin {
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+
+			// Only a genuine preflight is answered here. Any other OPTIONS is an
+			// unsupported method on a real path, and the router owns that answer — 405 in
+			// the envelope, the same as it gives with CORS disabled (ADR-0022).
+			if r.Method != http.MethodOptions || r.Header.Get("Access-Control-Request-Method") == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+requestIDHeader)
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
 		})
 	}
 }

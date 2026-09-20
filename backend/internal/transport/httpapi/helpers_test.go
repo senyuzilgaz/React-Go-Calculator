@@ -1,4 +1,4 @@
-package http
+package httpapi
 
 import (
 	"encoding/json"
@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-// newServer starts the real router over a real listener. Every test in this package goes
-// through it rather than calling a handler directly, so routing, method matching, and the
-// middleware chain are exercised on each request.
+// newServer starts the real router over a real listener. Every test goes through it rather
+// than calling a handler directly, so routing, method matching, and middleware are covered.
 func newServer(t *testing.T, config Config) *httptest.Server {
 	t.Helper()
 

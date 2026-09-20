@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// Apply returns the raw IEEE-754 result. Rounding and negative-zero normalization are
-// Format's job and no one else's (ADR-0003 clause 1, ADR-0015), so these expectations are
-// the unrounded binary64 values — including -0 where the sign survives.
+// Apply returns the raw IEEE-754 result; rounding and -0 normalization are Format's job
+// alone. These expectations are therefore unrounded, including -0 where the sign survives.
 func TestApplyReturnsRawBinary64Results(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -68,8 +67,7 @@ func TestApplyReturnsRawBinary64Results(t *testing.T) {
 	}
 }
 
-// 0^0 is 1 by the IEEE-754 pow convention, which is what math.Pow implements. It is a
-// deliberate answer rather than an undefined form, so it is not an error.
+// 0^0 is 1 by the IEEE-754 pow convention: a deliberate answer, not an undefined form.
 func TestPowerOfZeroToTheZeroIsOne(t *testing.T) {
 	got, err := Apply("power", nums([]string{"0", "0"}))
 	if err != nil {
@@ -80,8 +78,7 @@ func TestPowerOfZeroToTheZeroIsOne(t *testing.T) {
 	}
 }
 
-// -0 is not a negative number: the radicand guard is `x < 0`, not a sign-bit test.
-// math.Sqrt(-0) is -0, which Format later normalizes to "0".
+// -0 is not negative: the radicand guard is `x < 0`, not a sign-bit test.
 func TestSqrtOfNegativeZeroSucceeds(t *testing.T) {
 	got, err := Apply("sqrt", nums([]string{"-0"}))
 	if err != nil {
@@ -96,8 +93,8 @@ func TestSqrtOfNegativeZeroSucceeds(t *testing.T) {
 	}
 }
 
-// ADR-0010: percent is a plain binary operation, a x b / 100 — "a percent of b". The
-// contextual calculator behaviour where 200 + 10 % yields 220 is explicitly out of scope.
+// Percent is a plain binary operation, "a percent of b". The contextual calculator
+// behaviour where 200 + 10 % yields 220 is out of scope (ADR-0010).
 func TestPercentIsANonContextualBinaryOperation(t *testing.T) {
 	got, err := Apply("percent", nums([]string{"200", "10"}))
 	if err != nil {
@@ -107,8 +104,7 @@ func TestPercentIsANonContextualBinaryOperation(t *testing.T) {
 		t.Errorf("percent(200, 10) = %v, want 20 (a percent of b, not a contextual percentage)", got)
 	}
 
-	// a x b / 100 is symmetric in its operands, which the ordering of the catalog's
-	// percentage/value roles does not change.
+	// The formula is symmetric in its operands; the catalog's role names are not.
 	swapped, err := Apply("percent", nums([]string{"10", "200"}))
 	if err != nil {
 		t.Fatalf("percent(10, 200) returned error %v", err)
@@ -118,9 +114,8 @@ func TestPercentIsANonContextualBinaryOperation(t *testing.T) {
 	}
 }
 
-// The formula is fixed as a x b / 100 (ADR-0010), so the product is formed first and can
-// overflow even when the true result is representable: 1e300 percent of 1e10 is 1e308.
-// This pins the order of evaluation, not just the value.
+// The product is formed first, so a pair can overflow even where the true result is
+// representable. This pins the order of evaluation, not just the value.
 func TestPercentFormsTheProductBeforeDividing(t *testing.T) {
 	_, err := Apply("percent", nums([]string{"1e300", "1e10"}))
 	if !errors.Is(err, ErrResultOverflow) {
@@ -153,8 +148,7 @@ func TestApplyDomainErrors(t *testing.T) {
 		{"power overflows", "power", []string{"1e308", "2"}, ErrResultOverflow},
 		{"power overflows on a large exponent", "power", []string{"2", "1024"}, ErrResultOverflow},
 
-		// Non-finite results have exactly one code regardless of how they arose: a pole
-		// and an undefined form are both RESULT_OVERFLOW (ADR-0004).
+		// A pole and an undefined form are both RESULT_OVERFLOW (ADR-0004).
 		{"zero to a negative power is a pole", "power", []string{"0", "-1"}, ErrResultOverflow},
 		{"negative base to a fractional exponent is NaN", "power", []string{"-1", "0.5"}, ErrResultOverflow},
 		{"negative cube root is NaN", "power", []string{"-8", "0.3333333333333333"}, ErrResultOverflow},
@@ -171,9 +165,8 @@ func TestApplyDomainErrors(t *testing.T) {
 	}
 }
 
-// Non-finite values never reach the wire (CLAUDE.md invariant). JSON cannot carry NaN or
-// +/-Inf, but the domain layer is the authority and rejects them regardless of how they
-// arrived (ADR-0005), on every operation and at every position.
+// JSON cannot carry NaN or ±Inf, but the domain layer is the authority and rejects them
+// however they arrived — on every operation, at every position.
 func TestApplyRejectsNonFiniteOperands(t *testing.T) {
 	nonFinite := map[string]float64{
 		"NaN":       math.NaN(),
@@ -237,8 +230,8 @@ func TestApplyRejectsUnknownOperation(t *testing.T) {
 	}
 }
 
-// When several failures apply at once, the classification has to be stable, because each
-// maps to a different status code (ADR-0004): existence first, then shape, then values.
+// Each failure maps to a different status, so when several apply the order has to be
+// stable: existence, then shape, then values (ADR-0004).
 func TestApplyErrorPrecedence(t *testing.T) {
 	t.Run("unknown operation outranks a bad request body", func(t *testing.T) {
 		_, err := Apply("modulo", []float64{math.NaN(), math.Inf(1), math.NaN()})
@@ -255,8 +248,7 @@ func TestApplyErrorPrecedence(t *testing.T) {
 	})
 
 	t.Run("operand validity outranks the computation", func(t *testing.T) {
-		// A malformed request is a 400 and must not be reported as the 422 the
-		// computation would have produced.
+		// A 400 must not be reported as the 422 the computation would have produced.
 		_, err := Apply("divide", []float64{math.NaN(), num("0")})
 		if !errors.Is(err, ErrInvalidOperand) {
 			t.Fatalf("error = %v, want ErrInvalidOperand, not ErrDivisionByZero", err)
@@ -264,8 +256,7 @@ func TestApplyErrorPrecedence(t *testing.T) {
 	})
 }
 
-// The handler echoes the operands it received back to the client, so the domain layer must
-// treat the slice it is given as read-only.
+// The handler echoes the operands it received, so calc must treat them as read-only.
 func TestApplyDoesNotMutateOperands(t *testing.T) {
 	for _, op := range Catalog() {
 		t.Run(op.ID, func(t *testing.T) {
@@ -285,8 +276,8 @@ func TestApplyDoesNotMutateOperands(t *testing.T) {
 	}
 }
 
-// Apply is the guarded entry point; the registry entry is the bare arithmetic behind it.
-// Both must agree on the value for inputs that pass the guards.
+// Apply is the guarded entry point over the registry's bare arithmetic. For inputs that
+// pass the guards, both must agree.
 func TestRegistryApplyAgreesWithPackageApply(t *testing.T) {
 	for _, op := range Catalog() {
 		t.Run(op.ID, func(t *testing.T) {
@@ -308,8 +299,8 @@ func TestRegistryApplyAgreesWithPackageApply(t *testing.T) {
 	}
 }
 
-// Error text never reaches a client (ADR-0004), but it does reach the log, where it is
-// useless without naming what failed.
+// Error text never reaches a client, but it does reach the log, where it is useless
+// without naming what failed.
 func TestErrorsCarryDiagnosticContext(t *testing.T) {
 	t.Run("unknown operation names the identifier", func(t *testing.T) {
 		_, err := Apply("modulo", nums([]string{"10", "3"}))
@@ -333,8 +324,7 @@ func TestErrorsCarryDiagnosticContext(t *testing.T) {
 		}
 	})
 
-	// Positions are 1-based, matching the published message "Operand at position 1 is not
-	// a finite number" for the first operand (api/openapi.yaml, docs/API_EXAMPLES.md).
+	// Positions are 1-based, matching the published messages.
 	t.Run("invalid operand names its position", func(t *testing.T) {
 		_, err := Apply("add", []float64{num("1"), math.NaN()})
 		if err == nil {
@@ -346,7 +336,6 @@ func TestErrorsCarryDiagnosticContext(t *testing.T) {
 	})
 }
 
-// validOperandsFor builds operands that every published operation accepts: 4, or 4 and 2.
 func validOperandsFor(op Operation) []float64 {
 	operands := make([]float64, 0, op.Arity)
 	for _, s := range []string{"4", "2"}[:op.Arity] {

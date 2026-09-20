@@ -1,4 +1,4 @@
-package http
+package httpapi
 
 import (
 	"errors"
@@ -9,10 +9,9 @@ import (
 	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/calc"
 )
 
-// The taxonomy of ADR-0004, asserted directly rather than through a request, so that every
-// domain error has a mapping whether or not a request can currently reach it. calc's
-// ErrInvalidOperand is one such: the decoder rejects non-numeric operands first, and the
-// mapping exists so a change to the decode path degrades to a 400 rather than a 500.
+// The taxonomy of ADR-0004, asserted directly rather than through a request, so every
+// mapping is covered whether or not a request can currently reach it. ErrInvalidOperand is
+// one such: the decoder rejects non-numeric operands first.
 func TestEveryDomainErrorIsClassified(t *testing.T) {
 	sqrt, ok := calc.Lookup("sqrt")
 	if !ok {
@@ -29,8 +28,6 @@ func TestEveryDomainErrorIsClassified(t *testing.T) {
 			"Operation 'sqrt' requires exactly 1 operand, received 2"},
 		{calc.ErrInvalidOperand, http.StatusBadRequest, "INVALID_OPERAND",
 			"Operand is not a finite number"},
-		{calc.ErrUnknownOperation, http.StatusNotFound, "UNKNOWN_OPERATION",
-			"Unknown operation 'sqrt'"},
 		{calc.ErrDivisionByZero, http.StatusUnprocessableEntity, "DIVISION_BY_ZERO",
 			"Cannot divide by zero"},
 		{calc.ErrNegativeSqrt, http.StatusUnprocessableEntity, "NEGATIVE_SQRT",
@@ -55,6 +52,18 @@ func TestEveryDomainErrorIsClassified(t *testing.T) {
 				t.Errorf("message = %q, want %q", got.message, tt.message)
 			}
 		})
+	}
+}
+
+// ErrUnknownOperation has no mapping on purpose: handleExecute resolves existence before
+// calling calc, so reaching classify with it means this package is broken (ADR-0022).
+func TestUnknownOperationIsNotClassifiedHere(t *testing.T) {
+	operation, _ := calc.Lookup("add")
+
+	got := classify(calc.ErrUnknownOperation, operation, 2)
+
+	if got.status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500; the 404 is handleExecute's to return", got.status)
 	}
 }
 

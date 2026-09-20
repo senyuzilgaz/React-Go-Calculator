@@ -1,4 +1,4 @@
-package http
+package httpapi
 
 import (
 	"io"
@@ -36,8 +36,7 @@ func TestRequestIDIsEchoedWhenSupplied(t *testing.T) {
 	}
 }
 
-// The header is attacker-controlled and lands in every log line for the request, so an
-// unreasonable value is replaced rather than carried into the logs.
+// The header is attacker-controlled and lands in every log line for the request.
 func TestUnreasonableRequestIDIsReplaced(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -68,8 +67,7 @@ func TestUnreasonableRequestIDIsReplaced(t *testing.T) {
 	}
 }
 
-// A panic cannot be provoked through the router, since no handler panics. The middleware
-// is therefore exercised around a handler that does, still over a real server.
+// No handler panics, so the middleware is exercised around one that does.
 func TestPanicBecomesInternalError(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
@@ -101,8 +99,7 @@ func TestPanicBecomesInternalError(t *testing.T) {
 	}
 }
 
-// A panic after the response is committed cannot be replaced by a 500; the middleware must
-// leave the committed status alone rather than trying to write a second one.
+// A committed response cannot be replaced by a 500; the middleware must leave it alone.
 func TestPanicAfterResponseStartedLeavesTheStatusAlone(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
@@ -179,18 +176,57 @@ func TestCORSAnswersPreflight(t *testing.T) {
 	}
 }
 
-// Without CORS configured there is no preflight to answer, so OPTIONS is just an
-// unsupported method on a real path.
-func TestOptionsIsMethodNotAllowedWithoutCORS(t *testing.T) {
-	server := newServer(t, Config{})
+// Only a genuine preflight is a preflight. Any other OPTIONS is an unsupported method on a
+// real path and must answer the same way whether or not CORS is configured, or the contract
+// would hold in development and not in production (ADR-0022).
+func TestOptionsThatIsNotAPreflightIsMethodNotAllowed(t *testing.T) {
+	const origin = "https://calculator.example"
 
-	got := send(t, server, http.MethodOptions, "/api/v1/operations/add", "")
-
-	if got.status != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", got.status)
+	tests := []struct {
+		name    string
+		config  Config
+		headers map[string]string
+	}{
+		{"CORS disabled", Config{}, nil},
+		{"CORS enabled, no Origin", Config{AllowedOrigin: origin}, nil},
+		{"CORS enabled, unlisted Origin", Config{AllowedOrigin: origin},
+			map[string]string{"Origin": "https://attacker.example"}},
+		{"CORS enabled, Origin but no requested method", Config{AllowedOrigin: origin},
+			map[string]string{"Origin": origin}},
 	}
-	if allow := got.header.Get("Allow"); allow != "POST" {
-		t.Errorf("Allow = %q, want POST", allow)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newServer(t, tt.config)
+
+			got := sendWithHeaders(t, server, http.MethodOptions, "/api/v1/operations/add", "", tt.headers)
+
+			if got.status != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, want 405\nbody: %s", got.status, got.body)
+			}
+			if allow := got.header.Get("Allow"); allow != "POST" {
+				t.Errorf("Allow = %q, want POST", allow)
+			}
+			if detail := got.errorDetail(t); detail.Code != "METHOD_NOT_ALLOWED" {
+				t.Errorf("code = %q, want METHOD_NOT_ALLOWED", detail.Code)
+			}
+		})
+	}
+}
+
+// Configuring CORS must not stop unroutable paths answering in the envelope.
+func TestUnroutablePathAnswersInJSONWithCORSEnabled(t *testing.T) {
+	server := newServer(t, Config{AllowedOrigin: "https://calculator.example"})
+
+	got := sendWithHeaders(t, server, http.MethodOptions, "/metrics", "", map[string]string{
+		"Origin": "https://calculator.example",
+	})
+
+	if got.status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404\nbody: %s", got.status, got.body)
+	}
+	if detail := got.errorDetail(t); detail.Code != "UNKNOWN_OPERATION" {
+		t.Errorf("code = %q, want UNKNOWN_OPERATION", detail.Code)
 	}
 }
 
@@ -212,9 +248,8 @@ func TestRequestsAreLogged(t *testing.T) {
 	}
 }
 
-// A handler that writes a body without setting a status has still committed the response.
-// The recorder has to notice, or the recovery middleware would try to write a 500 over a
-// response already on the wire.
+// Writing a body without a status still commits the response. The recorder has to notice,
+// or recovery would write a 500 over a response already on the wire.
 func TestPanicAfterAnImplicitStatusLeavesTheBodyAlone(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
@@ -236,8 +271,7 @@ func TestPanicAfterAnImplicitStatusLeavesTheBodyAlone(t *testing.T) {
 	}
 }
 
-// Only the first status line reaches the client, so only the first is what the log should
-// report the request as having returned.
+// Only the first status line reaches the client, so only the first belongs in the log.
 func TestOnlyTheFirstStatusIsRecorded(t *testing.T) {
 	var logged strings.Builder
 	logger := slog.New(slog.NewJSONHandler(&logged, nil))

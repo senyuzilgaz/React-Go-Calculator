@@ -1,4 +1,7 @@
-package http
+// Package httpapi exposes the calculator over HTTP: routing, request decoding, error
+// classification, and middleware. It owns the wire; internal/calc owns the arithmetic
+// (ADR-0007).
+package httpapi
 
 import (
 	"io"
@@ -7,11 +10,14 @@ import (
 	"strings"
 )
 
-// Config is everything the transport needs from its environment. Reading it is main's job,
-// so the router stays a pure function of its inputs.
+// The router and the endpoint published in the catalog are both built from this, so they
+// cannot disagree.
+const operationsPath = "/api/v1/operations"
+
+// Config is what the transport needs from its environment. Reading it is main's job.
 type Config struct {
-	// AllowedOrigin enables the CORS middleware for exactly that origin. Empty disables
-	// it, which is the development default (ADR-0012).
+	// AllowedOrigin enables CORS for exactly that origin. Empty disables it, which is the
+	// development default (ADR-0012).
 	AllowedOrigin string
 
 	// Logger receives one line per request. Defaults to a discarding logger.
@@ -20,11 +26,9 @@ type Config struct {
 
 // NewRouter builds the handler for the whole API.
 //
-// Each path is registered twice: once with its method, and once without. Go's ServeMux
-// prefers the more specific pattern, so a supported method reaches the handler and every
-// other method falls through to the second registration, which answers 405 in the
-// documented envelope. Left to itself ServeMux would answer 405 in plain text, which the
-// contract does not describe (ADR-0014).
+// Each path is registered twice, once with its method and once without: ServeMux prefers the
+// more specific pattern, so every other method falls through to the second registration and
+// answers 405 in the envelope. ServeMux's own 405 is plain text (ADR-0014).
 func NewRouter(config Config) http.Handler {
 	logger := config.Logger
 	if logger == nil {
@@ -44,8 +48,8 @@ func NewRouter(config Config) http.Handler {
 
 	mux.HandleFunc("/", handleUnroutable)
 
-	// Innermost first: the correlation id must exist before anything logs, and the
-	// logger's defer must outlive the recovery so a panicking request is still recorded.
+	// Innermost first: the correlation id must exist before anything logs, and the logger's
+	// defer must outlive the recovery so a panicking request is still recorded.
 	var handler http.Handler = mux
 	handler = corsPolicy(config.AllowedOrigin)(handler)
 	handler = recoverPanics(logger)(handler)
@@ -64,13 +68,7 @@ func methodNotAllowed(supported ...string) http.HandlerFunc {
 	}
 }
 
-// handleUnroutable answers any path the contract does not describe. UNKNOWN_OPERATION is
-// the only 404 in the closed error enum (ADR-0004), and answering in the envelope keeps
-// the promise that every response from this API is JSON.
+// Paths outside the contract answer in the envelope too, so every response is JSON.
 func handleUnroutable(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, &apiError{
-		status:  http.StatusNotFound,
-		code:    "UNKNOWN_OPERATION",
-		message: "The requested resource does not exist",
-	})
+	writeError(w, unknownResource())
 }

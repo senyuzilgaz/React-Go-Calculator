@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// publishedCatalog mirrors the operation catalog exactly as it appears in
-// api/openapi.yaml (OperationCatalog example) and docs/API_EXAMPLES.md, including order.
-// The catalog endpoint is generated from this registry (ADR-0002), so any divergence here
-// is a break of the published contract.
+// publishedCatalog mirrors api/openapi.yaml and docs/API_EXAMPLES.md, order included. The
+// catalog endpoint is generated from the registry, so divergence here breaks the contract.
 var publishedCatalog = []Operation{
 	{
 		ID:     "add",
@@ -120,7 +118,7 @@ func TestCatalogParameterCountEqualsArity(t *testing.T) {
 	}
 }
 
-// Catalog-driven UI labels are only unambiguous if roles are unique per operation (ADR-0014).
+// Catalog-driven UI labels are unambiguous only if roles are unique per operation.
 func TestCatalogParameterNamesAreUniqueWithinOperation(t *testing.T) {
 	for _, op := range Catalog() {
 		seen := make(map[string]bool, len(op.Parameters))
@@ -157,19 +155,40 @@ func TestCatalogEveryOperationIsApplicable(t *testing.T) {
 	}
 }
 
-// The registry is process-wide state. A caller that reorders or edits what Catalog hands
-// back must not be able to corrupt it for the next caller.
-func TestCatalogReturnsIndependentSlice(t *testing.T) {
+// The registry is process-wide state. A caller editing what it was handed must not be able
+// to corrupt it for the next caller — including through the Parameters slice, which a
+// shallow copy of the struct would leave aliasing the registry (ADR-0022).
+func TestCatalogReturnsIndependentOperations(t *testing.T) {
 	first := Catalog()
 	if len(first) == 0 {
 		t.Fatal("Catalog() is empty")
 	}
 
+	original := first[0].Parameters[0].Name
+	first[0].Parameters[0].Name = "tampered"
 	first[0] = Operation{ID: "tampered"}
 
 	second := Catalog()
 	if second[0].ID == "tampered" {
 		t.Error("mutating the slice returned by Catalog() changed the registry")
+	}
+	if got := second[0].Parameters[0].Name; got != original {
+		t.Errorf("Parameters[0].Name = %q, want %q; Catalog() hands back registry state", got, original)
+	}
+}
+
+func TestLookupReturnsIndependentOperations(t *testing.T) {
+	first, ok := Lookup("add")
+	if !ok {
+		t.Fatal("add is not registered")
+	}
+
+	original := first.Parameters[0].Name
+	first.Parameters[0].Name = "tampered"
+
+	second, _ := Lookup("add")
+	if got := second.Parameters[0].Name; got != original {
+		t.Errorf("Parameters[0].Name = %q, want %q; Lookup hands back registry state", got, original)
 	}
 }
 
@@ -190,8 +209,7 @@ func TestLookupReturnsRegisteredOperations(t *testing.T) {
 }
 
 func TestLookupRejectsUnknownIdentifiers(t *testing.T) {
-	// Identifiers are exact: an unrecognised path segment is a 404, never a near match
-	// resolved by the server (ADR-0002).
+	// Identifiers are exact: an unrecognised segment is a 404, never a near match.
 	for _, id := range []string{"modulo", "ADD", "Add", "sqr", "sqrtt", " add", "add ", "", "+", "divide/"} {
 		if _, ok := Lookup(id); ok {
 			t.Errorf("Lookup(%q) resolved to an operation; it is not in the published catalog", id)
@@ -209,8 +227,8 @@ func TestSentinelErrorsAreDistinct(t *testing.T) {
 		"ErrResultOverflow":    ErrResultOverflow,
 	}
 
-	// Each sentinel maps to a distinct wire code in ADR-0004; conflating any two would
-	// collapse a 400 into a 422 or hide one failure mode behind another.
+	// Each sentinel maps to a distinct wire code; conflating two would collapse a 400 into
+	// a 422 or hide one failure mode behind another.
 	for nameA, a := range sentinels {
 		if a == nil {
 			t.Errorf("%s is nil", nameA)

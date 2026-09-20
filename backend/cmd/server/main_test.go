@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// freePort reserves a port and releases it, so the server under test can bind something
-// no other test is using.
+// freePort reserves a port and releases it, so the server binds one no other test is using.
 func freePort(t *testing.T) string {
 	t.Helper()
 
@@ -44,8 +43,7 @@ func waitForHealth(t *testing.T, baseURL string) {
 	t.Fatalf("server at %s did not become healthy", baseURL)
 }
 
-// The wiring test: run really listens, really serves the contract, and really stops when
-// its context is cancelled.
+// The wiring test: run really listens, serves the contract, and stops when cancelled.
 func TestRunServesTheAPIUntilCancelled(t *testing.T) {
 	port := freePort(t)
 	baseURL := "http://127.0.0.1:" + port
@@ -131,11 +129,11 @@ func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
-// A port already in use is reported, not swallowed: the process must not look healthy
-// while serving nothing.
+// A bind failure is reported, not swallowed: the process must not look healthy while
+// serving nothing.
 func TestRunReportsAFailureToListen(t *testing.T) {
-	// Occupy every interface, which is what the server binds. Holding only loopback is
-	// not a conflict: Go sets SO_REUSEADDR, so a wildcard bind alongside it succeeds.
+	// Occupy every interface, which is what the server binds. Holding only loopback is not
+	// a conflict: Go sets SO_REUSEADDR, so a wildcard bind alongside it succeeds.
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("occupying a port: %v", err)
@@ -159,8 +157,8 @@ func TestRunReportsAFailureToListen(t *testing.T) {
 	}
 }
 
-// Logs are structured and carry the correlation id, which is what makes a request in the
-// log findable from the response the client saw (ADR-0012).
+// The correlation id is what makes a request in the log findable from the response the
+// client saw (ADR-0012).
 func TestRequestsAreLoggedAsStructuredJSON(t *testing.T) {
 	port := freePort(t)
 	baseURL := "http://127.0.0.1:" + port

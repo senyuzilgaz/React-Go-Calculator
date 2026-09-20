@@ -1,12 +1,12 @@
-package http
+package httpapi
 
 import (
 	"net/http"
 	"testing"
 )
 
-// Routing and method matching are contract, not implementation detail: the 404/405 split
-// is what tells a client "no such resource" apart from "not that way" (ADR-0014).
+// The 404/405 split is contract: it tells a client "no such resource" apart from "not that
+// way" (ADR-0014).
 func TestRoutingAndMethodMatching(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -19,8 +19,7 @@ func TestRoutingAndMethodMatching(t *testing.T) {
 		allow  string
 	}{
 		{"health", http.MethodGet, "/healthz", "", http.StatusOK, ""},
-		// ServeMux matches HEAD against a registered GET, so the liveness probe answers
-		// both rather than reporting the method unsupported.
+		// ServeMux matches HEAD against a registered GET.
 		{"health accepts HEAD", http.MethodHead, "/healthz", "", http.StatusOK, ""},
 		{"health rejects POST", http.MethodPost, "/healthz", "", http.StatusMethodNotAllowed, "GET"},
 		{"health rejects PUT", http.MethodPut, "/healthz", "", http.StatusMethodNotAllowed, "GET"},
@@ -58,8 +57,7 @@ func TestRoutingAndMethodMatching(t *testing.T) {
 	}
 }
 
-// Every response is JSON and every response is correlated, including the ones no handler
-// produced (ADR-0014).
+// Every response is JSON and correlated, including the ones no handler produced.
 func TestEveryResponseIsCorrelatedJSON(t *testing.T) {
 	server := newServer(t, Config{})
 

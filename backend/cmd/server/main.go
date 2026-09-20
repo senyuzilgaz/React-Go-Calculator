@@ -13,13 +13,12 @@ import (
 	"time"
 
 	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/config"
-	transport "github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/transport/http"
+	"github.com/ilgazsenyuz/sezzle-technical-assignment/backend/internal/transport/httpapi"
 )
 
-// Deadlines for the connection itself, as opposed to anything the handlers do. They are
-// constants rather than settings because no deployment of this service has a reason to
-// differ: the API is pure computation with a 4 KiB body limit, so any request that takes
-// this long is a slow or stuck client rather than slow work.
+// Deadlines for the connection, not for anything the handlers do. Constants rather than
+// settings: the API is pure computation with a 4 KiB body limit, so a request taking this
+// long is a stuck client rather than slow work.
 const (
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 10 * time.Second
@@ -34,8 +33,8 @@ func main() {
 	}
 }
 
-// run is main's body, taking its environment as arguments so the wiring can be exercised
-// by a test rather than only by starting the process.
+// run is main's body, taking its environment as arguments so the wiring can be exercised by
+// a test rather than only by starting the process.
 func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) error {
 	settings, err := config.Load(getenv)
 	if err != nil {
@@ -46,7 +45,7 @@ func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) e
 
 	server := &http.Server{
 		Addr: settings.Address,
-		Handler: transport.NewRouter(transport.Config{
+		Handler: httpapi.NewRouter(httpapi.Config{
 			AllowedOrigin: settings.AllowedOrigin,
 			Logger:        logger,
 		}),
@@ -55,8 +54,8 @@ func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) e
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 
-		// net/http logs its own faults through a log.Logger; routing it into slog keeps
-		// every line the process emits in one structured stream.
+		// Routing net/http's own log.Logger into slog keeps every line the process emits
+		// in one structured stream.
 		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
@@ -83,8 +82,8 @@ func run(ctx context.Context, getenv func(string) string, logOutput io.Writer) e
 	case <-ctx.Done():
 	}
 
-	// Stop intercepting signals before waiting: a second Ctrl-C should terminate the
-	// process immediately rather than sit out the grace period.
+	// Stop intercepting signals before waiting, so a second Ctrl-C terminates immediately
+	// rather than sitting out the grace period.
 	stop()
 	logger.Info("shutting down", "grace", settings.ShutdownTimeout.String())
 

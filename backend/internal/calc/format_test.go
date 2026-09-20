@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// formatCases is the rounding policy of ADR-0003 as amended by ADR-0015, case by case.
-// Every expectation was produced by executing the four-step algorithm against runtime
-// binary64 values, never written by hand (ADR-0016).
+// The rounding policy of ADR-0015, case by case. Every expectation was produced by
+// executing the algorithm against runtime binary64 values, never written by hand.
 var formatCases = []struct {
 	name  string
 	value string
@@ -45,9 +44,8 @@ func TestFormatAppliesTheRoundingPolicy(t *testing.T) {
 	}
 }
 
-// Decimal notation for 1e-9 <= |v| < 1e12 and for zero, scientific outside it (ADR-0003
-// clause 4). The band edges are where a single 'g' format call diverges from the policy,
-// which is the contradiction ADR-0015 exists to correct.
+// Decimal inside [1e-9, 1e12), scientific outside. The band edges are where a single 'g'
+// call would diverge from the policy (ADR-0015).
 func TestFormatSelectsNotationByMagnitudeBand(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -75,8 +73,8 @@ func TestFormatSelectsNotationByMagnitudeBand(t *testing.T) {
 	}
 }
 
-// Notation is selected from the rounded value, not the original (ADR-0015 step 4), so a
-// value that rounds across a band edge is rendered in the band it lands in.
+// Notation follows the rounded value, so one that rounds across a band edge is rendered in
+// the band it lands in.
 func TestFormatSelectsNotationAfterRounding(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -96,9 +94,8 @@ func TestFormatSelectsNotationAfterRounding(t *testing.T) {
 	}
 }
 
-// Round-half-to-even, not half-away-from-zero (ADR-0003 clause 3). Both values below are
-// exactly representable in binary64 and carry exactly thirteen significant digits ending
-// in 5, so the tie is genuine rather than an artefact of the binary expansion.
+// Round-half-to-even, not half-away-from-zero. Both values are exactly representable and
+// carry thirteen significant digits ending in 5, so the tie is genuine.
 func TestFormatRoundsHalfToEven(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -134,9 +131,8 @@ func TestFormatNeverExceedsTwelveSignificantDigits(t *testing.T) {
 	}
 }
 
-// The result string is the canonical display form and the client renders it verbatim
-// (ADR-0003 clause 6). Re-parsing and re-formatting it must therefore be a no-op, or a
-// chained calculation would drift every time a result is re-entered as an operand.
+// Re-formatting a formatted result must be a no-op, or a chained calculation would drift
+// every time a result is re-entered as an operand (ADR-0009).
 func TestFormatIsStableUnderReparsing(t *testing.T) {
 	for _, tt := range formatCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -157,8 +153,7 @@ func TestFormatIsStableUnderReparsing(t *testing.T) {
 	}
 }
 
-// These are the pairs published in docs/API_EXAMPLES.md and api/openapi.yaml. They are the
-// user-visible half of the contract: the arithmetic and the rounding policy composed.
+// The pairs published in docs/API_EXAMPLES.md: arithmetic and rounding policy composed.
 func TestApplyThenFormatMatchesPublishedExamples(t *testing.T) {
 	tests := []struct {
 		op       string

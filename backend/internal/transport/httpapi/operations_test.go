@@ -1,4 +1,4 @@
-package http
+package httpapi
 
 import (
 	"encoding/json"
@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// The pairs published in docs/API_EXAMPLES.md, asserted end to end. These are the
-// executable half of the contract (ADR-0014).
+// The pairs published in docs/API_EXAMPLES.md, asserted end to end: the executable half
+// of the contract (ADR-0014).
 func TestExecuteReturnsPublishedExamples(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -46,9 +46,8 @@ func TestExecuteReturnsPublishedExamples(t *testing.T) {
 	}
 }
 
-// result is a string on the wire, not a number. Serialized as a number the browser would
-// re-parse it as binary64 and reintroduce exactly the error the rounding policy removes
-// (ADR-0003 clause 6).
+// As a JSON number the browser would re-parse it as binary64 and reintroduce exactly the
+// error the rounding policy removes (ADR-0003 clause 6).
 func TestResultIsCarriedAsAString(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -86,8 +85,7 @@ func TestExecuteEchoesOperandsAsReceived(t *testing.T) {
 	}
 }
 
-// Every operation in the catalog is reachable at the endpoint the catalog publishes. A
-// registry entry that routing did not pick up would fail here rather than in the frontend.
+// A registry entry that routing did not pick up fails here rather than in the frontend.
 func TestEveryPublishedOperationIsExecutable(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -133,8 +131,8 @@ func TestExecuteIgnoresContentType(t *testing.T) {
 	}
 }
 
-// One case per code in the taxonomy of ADR-0014, asserting status, code, and the exact
-// message published in api/openapi.yaml and docs/API_EXAMPLES.md.
+// One case per code in the taxonomy, asserting the exact published status, code, and
+// message (ADR-0014).
 func TestExecuteFailures(t *testing.T) {
 	server := newServer(t, Config{})
 
@@ -179,7 +177,7 @@ func TestExecuteFailures(t *testing.T) {
 			http.StatusBadRequest, "INVALID_OPERAND", "Operand at position 2 is not a finite number",
 		},
 		{
-			// Not representable in binary64, so it never becomes an operand at all.
+			// Not representable in binary64, so it never becomes an operand.
 			"operand beyond float64", "/api/v1/operations/add", `{"operands":[1e999,2]}`,
 			http.StatusBadRequest, "INVALID_OPERAND", "Operand at position 1 is not a finite number",
 		},
@@ -253,8 +251,8 @@ func TestOversizedBodyIsRejected(t *testing.T) {
 	}
 }
 
-// Existence is settled before the body is read: a request for an operation that does not
-// exist is a 404 whatever it carries.
+// Existence is settled before the body is read, so a request for an operation that does
+// not exist is a 404 whatever it carries.
 func TestUnknownOperationOutranksAMalformedBody(t *testing.T) {
 	server := newServer(t, Config{})
 

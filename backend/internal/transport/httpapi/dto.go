@@ -1,23 +1,9 @@
-// Package http exposes the calculator over HTTP: routing, request decoding, error
-// classification, and middleware.
-//
-// It owns everything about the wire — status codes, JSON shapes, the error envelope, URL
-// paths — and internal/calc owns the arithmetic. The two meet only at calc's exported
-// functions and domain errors (ADR-0007).
-package http
+package httpapi
 
 import "encoding/json"
 
-// operandsPath is the prefix the operation resources live under. The router and the
-// endpoint published in the catalog are both built from it, so they cannot disagree.
-const operationsPath = "/api/v1/operations"
-
-// maxRequestBytes caps the request body. A body beyond it is reported as INVALID_JSON,
-// as documented in api/openapi.yaml.
-const maxRequestBytes = 4 << 10
-
-// Operands are decoded one element at a time rather than straight into []float64, so that
-// a bad element can be reported with its position (ADR-0014).
+// Operands are decoded one element at a time rather than straight into []float64, so a bad
+// element can be reported with its position (ADR-0014).
 type calculationRequest struct {
 	Operands []json.RawMessage `json:"operands"`
 }
