@@ -117,10 +117,37 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Equals' })).toBeEnabled()
   })
 
-  it('shows a rejected computation in the message its code maps to', async () => {
+  it('renders 3 for 12 \u00f7 4', async () => {
+    let body: unknown
+    server.use(
+      http.post('/api/v1/operations/divide', async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json({ operation: 'divide', operands: [12, 4], result: '3' })
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('button', { name: '2' }))
+    await user.click(screen.getByRole('button', { name: 'Division' }))
+
+    expect(screen.getByText('12 \u00f7')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '4' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('3')
+    expect(body).toEqual({ operands: [12, 4] })
+  })
+
+  it('renders a 422 as the message for its code and never the server prose', async () => {
+    const serverProse = 'divide(1, 0): calc: division by zero'
     server.use(
       http.post('/api/v1/operations/divide', () =>
-        errorBody(422, 'DIVISION_BY_ZERO', 'Cannot divide by zero'),
+        errorBody(422, 'DIVISION_BY_ZERO', serverProse),
       ),
     )
 
@@ -134,6 +161,36 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Equals' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot divide by zero.')
+    expect(document.body).not.toHaveTextContent(serverProse)
+    expect(screen.queryByText(/calc:/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the rejected computation ready to retype after a 422', async () => {
+    server.use(
+      http.post('/api/v1/operations/divide', () =>
+        errorBody(422, 'DIVISION_BY_ZERO', 'Cannot divide by zero'),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await catalogLoaded()
+
+    await user.click(screen.getByRole('button', { name: '8' }))
+    await user.click(screen.getByRole('button', { name: 'Division' }))
+    await user.click(screen.getByRole('button', { name: '0' }))
+    await user.click(screen.getByRole('button', { name: 'Equals' }))
+
+    await screen.findByRole('alert')
+
+    expect(screen.getByText('8 \u00f7')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('8')
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: '4' }))
+
+    expect(screen.getByRole('button', { name: 'Equals' })).toBeEnabled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('offers a retry when the catalog cannot be reached', async () => {

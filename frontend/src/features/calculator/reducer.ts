@@ -104,6 +104,17 @@ export function displayValue(state: CalculatorState): string {
   return state.right ?? state.left ?? ZERO
 }
 
+// The operation is shown with its operand in the position the symbol is read in: a unary
+// symbol precedes its operand, a binary one follows the operand it was pressed after.
+export function pendingExpression(state: CalculatorState): string | null {
+  const { operation } = state
+  if (operation === null) return null
+
+  const left = state.left ?? ZERO
+
+  return operation.arity === 1 ? `${operation.symbol} ${left}` : `${left} ${operation.symbol}`
+}
+
 export function canSubmit(state: CalculatorState): boolean {
   return pendingRequest(state) !== null
 }
