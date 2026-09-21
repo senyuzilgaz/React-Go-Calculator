@@ -101,6 +101,16 @@ cd backend  && go test ./...
 cd frontend && npm test
 ```
 
+## Coverage
+
+```bash
+cd backend  && go test ./... -coverprofile=coverage.out && go tool cover -html=coverage.out -o coverage.html
+cd frontend && npm run coverage
+```
+
+Backend 98.9% of statements, frontend 92.6%. The browsable reports land at
+`backend/coverage.html` and `frontend/coverage/index.html`.
+
 ## Design Decisions
 
 **The server owns the numbers.** `0.1 + 0.2` is `0.30000000000000004` in float64, and it's the
@@ -154,6 +164,8 @@ Also deliberately absent: gRPC, a queue, client codegen, Redux, Kubernetes, rate
 end-to-end browser tests, a plugin architecture for operations.
 
 ## The long version
+
+`PROMPTS.md` has the prompts used to build this with Claude Code, verbatim.
 
 `docs/DECISIONS.md` is the append-only log this is compressed from, with each decision's
 context, the alternatives weighed, and what it cost. Entries are never edited, so the ones that
